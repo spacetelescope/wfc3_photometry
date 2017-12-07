@@ -1,3 +1,22 @@
+"""Computes MMM statistics within photutils apertures.
+
+The functions in this script enable the computation of statistics
+within a PhotUtils aperture, which is currently not directly
+implemented in PhotUtils itself.  This code is meant to be 
+imported into other code, and then be usable as a single line to
+return all the statistics in a format similar to the
+aperture_photometry method in PhotUtils (i.e. an astropy table).
+
+Authors
+-------
+    - Varun Bajaj, December 2017
+Use
+---
+    from background_median import aperture_stats_tbl
+    stats_tbl = aperture_stats_tbl(data, apertures)
+    
+    See the docstring of aperture_stats_tbl for more info.    
+"""
 import numpy as np
 from astropy.table import Table
 
