@@ -5,19 +5,20 @@ Welcome to the WFC3 Photometric tools repository.  This repository will be used 
 The pipeline will be run via the use of config files.  The config files will be stored with the outputs,
 
 ### Rough skeleton of pipeline:
-1. Query MAST Database for all observations of target(s)
-    1. Check calibration version?
-2. Download all observations not in data directories (Via Astroquery or QL?)
-3. Filter bad datasets
-4. Visit level drizzle all images
-5. Detect source in each drizzled image?
-    1. Use WCS tools to transform coordinates to find them in FLT/FLC frame
-    2. Validate detections?
-6. Run LACosmic on relevant exposures, save output images in a parallel tree.
-7. Run the photometry, use several different apertures, bg methods etc.
-    1. Potentially save photometric results separately from bg results?
-8. Save results to csv's?  hdf5?  Some format that will be easy for anyone to access
-9. Make some preliminary plots from these results.
+- [x] Query MAST Database for all observations of target(s)
+    - [ ] Check calibration version?
+- [ ] Download all observations not in data directories (~~Via Astroquery or QL?~~ Via MAST API)
+- [ ] Filter bad datasets
+- [ ] Visit level drizzle all images
+- [ ] Detect source in each drizzled image?
+    - [ ] Use WCS tools to transform coordinates to find them in FLT/FLC frame
+    - [ ] Validate detections?
+- [ ] Run LACosmic on relevant exposures, save output images in a parallel tree.
+- [ ] Run the photometry, use several different apertures, bg methods etc.
+    - [ ] Potentially save photometric results separately from bg results?
+    - [x] Implement median/mode bg measurement for photutils
+- [ ] Save results to csv's?  hdf5?  Some format that will be easy for anyone to access
+- [ ] Make some preliminary plots from these results.
 
 
 ### Ideas:
