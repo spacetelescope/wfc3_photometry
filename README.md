@@ -25,3 +25,7 @@ The pipeline will be run via the use of config files.  The config files will be 
 * Base the flow of the software on the contam pipeline?
 * Write as little new code as possible, use packages that are well developed and maintained
 * Document the pipelines well so others can work on the project without a huge learning curve
+
+### Other To-do's:
+- [ ] Make modules out of components of pipeline
+- [ ] Write a top-level wrapper (pipeline) that runs with plaintext/json? config file
