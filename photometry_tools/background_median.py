@@ -22,7 +22,7 @@ from astropy.table import Table
 from scipy.stats import sigmaclip # WAY faster than astropy.stats.sigma_clipped_stats
 
 
-def aperture_stats_tbl(data, apertures, method='exact', sigma_clip=False):
+def aperture_stats_tbl(data, apertures, method='exact', sigma_clip=True):
     """Computes mean, median, and mode statistics inside Photutils
     apertures. This is primarily intended for estimating
     backgrounds via annulus apertures.  The intent is that this
@@ -71,7 +71,7 @@ def aperture_stats_tbl(data, apertures, method='exact', sigma_clip=False):
     stats_tbl = Table(data=stacked, names=names)
     return stats_tbl
 
-def calc_aperture_mmm(data, mask, sigma_clip=False):
+def calc_aperture_mmm(data, mask, sigma_clip):
     """Helper function to actually calculate the stats for pixels
         falling within some Photutils aperture mask on some array
         of data.
