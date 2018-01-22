@@ -18,31 +18,35 @@ Use
     See the docstring of aperture_stats_tbl for more info.
 """
 import numpy as np
+
+# WAY faster than astropy.stats.sigma_clipped_stats
+from scipy.stats import sigmaclip
 from astropy.table import Table
-from scipy.stats import sigmaclip # WAY faster than astropy.stats.sigma_clipped_stats
 
+def aperture_stats_tbl(data, apertures,
+                       method='exact', sigma_clip=True):
+    """Computes mean/median/mode/std in Photutils apertures.
 
-def aperture_stats_tbl(data, apertures, method='exact', sigma_clip=True):
-    """Computes mean, median, and mode statistics inside Photutils
-    apertures. This is primarily intended for estimating
-    backgrounds via annulus apertures.  The intent is that this
-    falls easily into other code to provide background measurements.
+    Compute statistics for custom local background methods.
+    This is primarily intended for estimating backgrounds
+    via annulus apertures.  The intent is that this falls easily
+    into other code to provide background measurements.
 
     Parameters
     ----------
     data : array
         The data for the image to be measured.
-    apertures : photutils.aperture.core.PixelAperture object (or subclass)
+    apertures : photutils PixelAperture object (or subclass)
         The phoutils aperture object to measure the stats in.
-        i.e. the object returned via CirularAperture, CircularAnnulus,
-        or RectangularAperture etc.
+        i.e. the object returned via CirularAperture,
+        CircularAnnulus, or RectangularAperture etc.
     method: str
-        The method by which to handle the pixel overlap.  Defaults to
-        computing the exact area.
-        NOTE: Currently, this will actually fully include a pixel where
-        the aperture has ANY overlap,
-        as a median is also being performed.  If the method is set to
-        'center' the pixels will only be included if the pixel's center
+        The method by which to handle the pixel overlap.
+        Defaults to computing the exact area.
+        NOTE: Currently, this will actually fully include a
+        pixel where the aperture has ANY overlap, as a median
+        is also being performed.  If the method is set to 'center'
+        the pixels will only be included if the pixel's center
         falls within the aperture.
     sigma_clip: bool
         Flag to activate sigma clipping of background pixels
@@ -58,9 +62,13 @@ def aperture_stats_tbl(data, apertures, method='exact', sigma_clip=True):
 
     # Get the masks that will be used to identify our desired pixels.
     masks = apertures.to_mask(method=method)
+
     # Compute the stats of pixels within the masks
-    aperture_stats = [calc_aperture_mmm(data, mask, sigma_clip) for mask in masks]
+    aperture_stats = [calc_aperture_mmm(data, mask, sigma_clip)
+                      for mask in masks]
+
     aperture_stats = np.array(aperture_stats)
+
 
     # Place the array of the x y positions alongside the stats
     stacked = np.hstack([apertures.positions, aperture_stats])
@@ -69,6 +77,8 @@ def aperture_stats_tbl(data, apertures, method='exact', sigma_clip=True):
             'aperture_std', 'aperture_area']
     # Make the table
     stats_tbl = Table(data=stacked, names=names)
+
+
     return stats_tbl
 
 def calc_aperture_mmm(data, mask, sigma_clip):
