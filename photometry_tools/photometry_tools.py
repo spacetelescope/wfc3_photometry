@@ -110,8 +110,13 @@ def iraf_style_photometry(
     mag_err = 1.0857 * flux_error / flux
 
     # Make the final table
-    cols = [phot_apertures.positions, flux, flux_error, mag, mag_err]
-    stacked = np.hstack(cols)
+    X, Y = phot_apertures.positions.T
+    cols = [X, Y, flux, flux_error, mag, mag_err]
+    for col in cols:
+        print col.shape
+    stacked = np.stack([X, Y, flux, flux_error, mag, mag_err], axis=1)
+    print stacked.shape
+    # return [X, Y, flux, flux_error, mag, mag_err]
     names = ['X', 'Y', 'flux', 'flux_error', 'mag', 'mag_error']
 
     final_tbl = Table(data=stacked, names=names)
