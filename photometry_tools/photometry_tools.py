@@ -39,8 +39,15 @@ Use
         (sources['xcentroid'], sources['ycentroid']),
         r_in=13., r_out=15.)
 
+    # Simplest call:
     photometry_tbl = iraf_style_photometry(
-        phot_aps, bg_aps, data, error_array, bg_method='mode')
+        phot_aps, bg_aps, data)
+    # Pass in pixelwise error and set background to mean
+    photometry_tbl = iraf_style_photometry(
+        phot_aps, bg_aps, data, error_array=data_err, bg_method='mean')
+    # Can also set the gain (if image units are DN)
+    photometry_tbl = iraf_style_photometry(
+        phot_aps, bg_aps, data, epadu=2.5)
 """
 
 import numpy as np
@@ -53,7 +60,8 @@ def iraf_style_photometry(
         bg_apertures,
         data,
         error_array=None,
-        bg_method='mode'):
+        bg_method='mode'
+        epadu=1.0):
     """Computes photometry with PhotUtils apertures, with IRAF formulae
 
     Parameters
@@ -66,17 +74,19 @@ def iraf_style_photometry(
         i.e. the object returned via CircularAnnulus.
     data : array
         The data for the image to be measured.
-    error_array: array
+    error_array: array, optional
         The array of pixelwise error of the data.  If none, the
         Poisson noise term in the error computation will just be the
         square root of the flux. If not none, the aperture_sum_err
         column output by aperture_photometry will be used as the
         Poisson noise term.
-    bg_method:
+    bg_method: str, optional
         The statistic used to calculate the background.
         Valid options are mean, median, or mode (default).
         All measurements are sigma clipped.
         NOTE: From DAOPHOT, mode = 3 * median - 2 * mean.
+    epadu: float, optional
+        Gain in electrons per adu (only use if image units are DN)
 
     Returns
     -------
@@ -101,10 +111,11 @@ def iraf_style_photometry(
     # If no error_array error = flux ** .5
     if error_array:
         flux_error = compute_phot_error(phot['aperture_sum_err']**2.0,
-                                        bg_phot, bg_method, ap_area)
+                                        bg_phot, bg_method, ap_area,
+                                        epadu)
     else:
         flux_error = compute_phot_error(flux, bg_phot,
-                                        bg_method, ap_area)
+                                        bg_method, ap_area, epadu)
 
     mag = -2.5 * np.log10(flux)
     mag_err = 1.0857 * flux_error / flux
