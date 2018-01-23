@@ -9,14 +9,14 @@ The pipeline will be run via the use of config files.  The config files will be 
     - [ ] Check calibration version?
 - [ ] Download all observations not in data directories (~~Via Astroquery or QL?~~ Via MAST API)
 - [ ] Filter bad datasets
-- [ ] Visit level drizzle all images
+- [x] Visit level drizzle all images (code exists already)
 - [ ] Detect source in each drizzled image?
     - [ ] Use WCS tools to transform coordinates to find them in FLT/FLC frame
     - [ ] Validate detections?
 - [ ] Run LACosmic on relevant exposures, save output images in a parallel tree.
 - [ ] Run the photometry, use several different apertures, bg methods etc.
-    - [ ] Potentially save photometric results separately from bg results?
-    - [x] Implement median/mode bg measurement for photutils
+    - [x] Implement sigma-clipped median/mode bg measurement for photutils
+    - [x] Implement full error computation (DAOPHOT style errors)
 - [ ] Save results to csv's?  hdf5?  Some format that will be easy for anyone to access
 - [ ] Make some preliminary plots from these results.
 
