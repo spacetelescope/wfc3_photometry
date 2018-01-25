@@ -60,7 +60,7 @@ def iraf_style_photometry(
         bg_apertures,
         data,
         error_array=None,
-        bg_method='mode'
+        bg_method='mode',
         epadu=1.0):
     """Computes photometry with PhotUtils apertures, with IRAF formulae
 
@@ -77,24 +77,27 @@ def iraf_style_photometry(
     error_array: array, optional
         The array of pixelwise error of the data.  If none, the
         Poisson noise term in the error computation will just be the
-        square root of the flux. If not none, the aperture_sum_err
-        column output by aperture_photometry will be used as the
-        Poisson noise term.
-    bg_method: str, optional
+        square root of the flux/epadu. If not none, the
+        aperture_sum_err column output by aperture_photometry
+        (divided by epadu) will be used as the Poisson noise term.
+    bg_method: {'mean', 'median', 'mode'}, optional
         The statistic used to calculate the background.
-        Valid options are mean, median, or mode (default).
         All measurements are sigma clipped.
         NOTE: From DAOPHOT, mode = 3 * median - 2 * mean.
     epadu: float, optional
-        Gain in electrons per adu (only use if image units are DN)
+        Gain in electrons per adu (only use if image units aren't e-).
 
     Returns
     -------
     final_tbl : astropy.table.Table
         An astropy Table with the colums X, Y, flux, flux_error, mag,
-        and mag_err measurements for each of thesources
+        and mag_err measurements for each of the sources.
 
     """
+
+    if bg_method not in ['mean', 'median', 'mode']:
+        raise ValueError('Invalid background method, choose either \
+                          mean, median, or mode')
 
     phot = aperture_photometry(data, phot_apertures, error=error_array)
     bg_phot = aperture_stats_tbl(data, bg_apertures, sigma_clip=True)
