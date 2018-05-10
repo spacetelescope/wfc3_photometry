@@ -1,3 +1,26 @@
+"""Tools for creating radial profile diagnostic information.
+
+These methods are used in the computation of radial profiles, that
+is the pixel values vs the distance from the centroid of the source.
+These functions can make plots, fit a Moffat function to the profile,
+and recenter the source position as the profile is sensitive to the
+centroids.  The returned value is generally the full width at half
+maximum of the profile, but other outputs can also be returned.
+
+
+Authors
+-------
+    - Varun Bajaj, May 2018
+Use
+---
+    from rad_prof import radial_profile
+    fwhm = radial_profile(x, y, data) # Simplest case
+    fwhm = radial_profile(x, y, data, show=True) # Makes plot
+
+    # Get new centroid, change box size
+    fwhm, newx, newy = radial_profile(x, y, data, r=4, recenter=True)
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -80,7 +103,7 @@ def profile_model(r, amp, gamma, alpha, bias):
     model = amp * (1. + (r / gamma) ** 2.) ** (-1. * alpha) + bias
     return model
 
-def radial_profile(x, y, data, r=5, fit=False, show=False, ax=None, recenter=False):
+def radial_profile(x, y, data, r=5, fit=True, show=False, ax=None, recenter=False):
     """Main function to calulate radial profiles
 
     Computes a radial profile of a source in an array.  This function
@@ -234,4 +257,6 @@ def show_profile(distances, values, ax=None):
         min_y = np.amin(values[values >0.])/2.
     ax.set_ylim(min_y, np.amax(values)*2.)
     ax.set_yscale('log')
+    ax.set_ylabel('Pixel Value')
+    ax.set_xlabel('Distance from centroid [pix]')
     return ax
