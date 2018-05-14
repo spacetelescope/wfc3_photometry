@@ -22,7 +22,7 @@ Use
 
 import numpy as np
 
-from photometry_tools import iraf_style_photometry
+from .photometry_with_errors import iraf_style_photometry
 from photutils import CircularAnnulus, CircularAperture
 
 def photometry(

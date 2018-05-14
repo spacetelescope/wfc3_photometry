@@ -52,7 +52,7 @@ Use
 
 import numpy as np
 from astropy.table import Table
-from background_median import aperture_stats_tbl
+from .background_median import aperture_stats_tbl
 from photutils import aperture_photometry
 
 def iraf_style_photometry(
