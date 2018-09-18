@@ -41,6 +41,7 @@ import matplotlib.pyplot as plt
 from photutils import centroid_com, centroid_1dg, centroid_2dg
 from photutils.aperture import CircularAperture
 from scipy.optimize import curve_fit
+from scipy.stats import chisquare
 
 
 class RadialProfile:
@@ -127,14 +128,19 @@ class RadialProfile:
         if recenter:
             self.recenter_source(data) # recalculates centroid
 
-        self._create_profile() # creates distances and values arrays
-
         self.fit = fit
         self.fitted = False # Initial state, set to true if fit success
-        if fit:
-            self.fit_profile() # performs fit, updates self.fitted
-        if show:
-            self.show_profile(ax)
+        if self.is_empty:
+            self.fwhm = np.nan
+
+        else:
+            self._create_profile() # creates distances and values arrays
+
+
+            if fit:
+                self.fit_profile() # performs fit, updates self.fitted
+            if show:
+                self.show_profile(ax)
 
     def _create_profile(self):
         """Compute distances to pixels in cutout"""
@@ -178,11 +184,14 @@ class RadialProfile:
             self.fwhm = 2 * hwhm
             self.amp, self.gamma, self.alpha, self.bias = best_vals
             self.fitted = True
+            mod = RadialProfile.profile_model(self.distances, *best_vals)
+            self.chisquared = chisquare(self.values, mod, ddof=4)[0]
         except Exception as e:
             print e
             self.amp, self.gamma, self.alpha, self.bias = [np.nan] * 4
             self.fwhm = np.nan
             self.fitted = False
+            self.chisquared = np.nan
 
     @staticmethod
     def profile_model(r, amp, gamma, alpha, bias):
