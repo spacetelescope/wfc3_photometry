@@ -3,7 +3,9 @@ import numpy as np
 import os
 import subprocess
 
+from astropy.io import fits
 from astropy.table import Table
+from astropy.wcs import WCS
 from drizzlepac.wcs_functions import make_perfect_cd
 from stwcs.wcsutil.hstwcs import HSTWCS
 from stwcs.distortion import utils
@@ -44,8 +46,12 @@ def make_chip_catalogs(input_catalogs):
 
         xyrd1 = np.vstack([x1, y1, rd1[:,0], rd1[:,1], m1, q1]).T
         xyrd2 = np.vstack([x2, y2, rd2[:,0], rd2[:,1], m2, q2]).T
-        np.savetxt(image_root + '_sci1_xyrd.cat', xyrd1)
-        np.savetxt(image_root + '_sci2_xyrd.cat', xyrd2)
+        table1 = Table(xyrd1, names=['x', 'y', 'r','d','m', 'q'])
+        table2 = Table(xyrd2, names=['x', 'y', 'r','d','m', 'q'])
+        table1.write(image_root + '_sci1_xyrd.cat', format='ascii.commented_header')
+        table2.write(image_root + '_sci2_xyrd.cat', format='ascii.commented_header')
+        # np.savetxt(image_root + '_sci1_xyrd.cat', xyrd1)
+        # np.savetxt(image_root + '_sci2_xyrd.cat', xyrd2)
 
 def make_tweakreg_catfile(input_images):
     """Makes the list of catalogs associated with each image for TweakReg"""
@@ -95,7 +101,7 @@ def create_output_wcs(input_images):
     output_wcs : HSTWCS
         WCS object for the final reference frame. Like an Astropy WCS.
     """
-    
+
     hst_wcs_list = []
     for f in input_images:
         hw1 = HSTWCS(f, ext=1)

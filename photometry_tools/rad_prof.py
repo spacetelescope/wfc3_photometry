@@ -157,8 +157,8 @@ class RadialProfile:
         """
         self.ap = CircularAperture((self.x, self.y), r=self.r)
         mask = self.ap.to_mask()[0]
-        self.sy = mask.slices[0]
-        self.sx = mask.slices[1]
+        self.sy = mask.bbox.slices[0]
+        self.sx = mask.bbox.slices[1]
         self.cutout = mask.cutout(data, fill_value=np.nan)
 
         if self.cutout is None:
@@ -187,7 +187,7 @@ class RadialProfile:
             mod = RadialProfile.profile_model(self.distances, *best_vals)
             self.chisquared = chisquare(self.values, mod, ddof=4)[0]
         except Exception as e:
-            print e
+            print(e)
             self.amp, self.gamma, self.alpha, self.bias = [np.nan] * 4
             self.fwhm = np.nan
             self.fitted = False

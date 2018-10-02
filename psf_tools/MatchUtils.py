@@ -43,6 +43,7 @@ def make_id_list(coord_ints, x_digits=None, y_digits=None):
 
 def get_match_indices(master_ids, input_ids):
     """Matches ID from master list with input ids from input catalog"""
+
     matched_indices = []
     input_sorted_inds = np.argsort(input_ids)
     input_ids = sorted(input_ids)

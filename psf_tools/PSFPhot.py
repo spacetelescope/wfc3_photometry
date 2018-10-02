@@ -5,8 +5,9 @@ import os
 import subprocess
 
 from astropy.io import fits
-from astropy.wcs import WCS
+from astropy.stats import sigma_clip
 from astropy.table import Table
+from astropy.wcs import WCS
 from bisect import bisect_left
 from skimage.draw import polygon
 
@@ -47,7 +48,9 @@ def align_images(input_images, reference_catalog=None,
     make_tweakreg_catfile(input_images)
     tweakreg.TweakReg(input_images, catfile='tweakreg_catlist.txt',
                       refcat=reference_catalog, searchrad=searchrad,
-                      interactive=False, updatehdr=True, shiftfile=True)
+                      interactive=False, updatehdr=True, shiftfile=True,
+                      reusename=True)
+
 
 def collate(match_arr, tbls):
     """
@@ -95,8 +98,19 @@ def collate(match_arr, tbls):
                 qs[j,i] = tbls[i]['q'][element]
                 xs[j,i] = tbls[i]['rx'][element]
                 ys[j,i] = tbls[i]['ry'][element]
-        ns[j] = sum(~np.isnan(mags[j]))
 
+
+    print('Clipping the fit quality')
+    clipped_q = sigma_clip(qs, sigma=2.5, axis=1, copy=True)
+    clip_mask = clipped_q.mask
+
+    orig_nans = np.sum(np.isnan(mags))
+
+    for array in arrays:
+        array[clip_mask] = np.nan
+
+    total_nans = np.sum(np.isnan(mags))
+    print('Rejected {} measurements'.format(total_nans-orig_nans))
 
     final_tbl = Table()
     final_tbl['mbar'] = np.nanmean(mags, axis=1)
@@ -110,8 +124,8 @@ def collate(match_arr, tbls):
     final_tbl['dstd'] = np.nanstd(ds, axis=1)
     final_tbl['qstd'] = np.nanstd(qs, axis=1)
     final_tbl['xstd'] = np.nanstd(xs, axis=1)
-    final_tbl['ystd'] = np.nanmean(ys, axis=1)
-    final_tbl['n'] = ns
+    final_tbl['ystd'] = np.nanstd(ys, axis=1)
+    final_tbl['n'] = np.sum(np.isnan(mags), axis=1)
 
     return final_tbl
 
@@ -178,6 +192,7 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
         cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
         input_catalogs += sorted(glob.glob(cat_wildcard))
         filters += [filt] * len(input_catalogs)
+
     final_catalog = process_peaks(peakmap, all_int_coords,
                                   input_catalogs, outwcs,
                                   filters,
@@ -211,20 +226,22 @@ def make_peakmap(input_images, ref_wcs, save_peakmap=True):
         positions in the reference frame.
     """
     all_int_coords, input_catalogs = [], []
+
     for f in input_images:
         filt = fits.getval(f, 'FILTER')
         cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
-        input_catalogs += sorted(glob.glob(cat_wildcard))
+        input_catalogs = sorted(glob.glob(cat_wildcard))
         for cat in input_catalogs:
             tmp = rd_to_refpix(cat, ref_wcs)
             all_int_coords.append(tmp)
-        all_int_coords = np.array(all_int_coords)
+
+    all_int_coords = np.array(all_int_coords)
 
     peakmap = np.zeros((ref_wcs._naxis2, ref_wcs._naxis1), dtype=int)
     for coord_list in all_int_coords:
         peakmap[coord_list[:,1], coord_list[:,0]] += 1
 
-    if save_map:
+    if save_peakmap:
         pri_hdu = fits.PrimaryHDU()
         im_hdu = fits.hdu.ImageHDU(data=peakmap, header=ref_wcs.to_header())
         hdul = fits.HDUList([pri_hdu, im_hdu])
@@ -284,7 +301,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
     colnames = ['x', 'y', 'r', 'd', 'm', 'q']
     for i, cat in enumerate(input_cats):
 #         print cat
-        tmp_tbl = Table.read(cat, names=colnames, format='ascii.no_header')
+        tmp_tbl = Table.read(cat, names=colnames, format='ascii.commented_header')
         tmp_tbl.meta['filter'] = filter_list[i]
         rx, ry = ref_wcs.all_world2pix(np.array([tmp_tbl['r'],tmp_tbl['d']]).T, 1).T
         tmp_tbl['rx'] = rx
@@ -296,20 +313,65 @@ def process_peaks(peakmap, all_int_coords, input_cats,
     return final_tbl
 
 
-def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999, out='xympqk', executable_path=None):
-    """Run hst1pass on set of images"""
+def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
+                 out='xympqk', executable_path=None):
+    """
+    Run hst1pass.e Fortran code on images to produce initial catalogs.
+
+    This function runs the Fortran routine hst1pass.e, on a set of
+    input images.  This is Jay Anderson's PSF fitting single pass
+    photometry code.  The fortran code must first be compiled for
+    this code to run.  Running this code outputs one catalog for
+    each input image, and saves those files to disk.  More parameters
+    from the hst1pass.e code may be added to this interface in the
+    future.  The original Fortran executable can also be called from
+    the command line if desired.
+
+    Parameters
+    ----------
+    input_images : list
+        List of image filenames (strings).
+    hmin : int
+        DEFINE HMIN HERE. Default 5
+    fmin : int, optional
+        The minimum flux (in image units) a source must have to be
+        included in the output catalogs. Default 1000.
+    pmax : int, optional
+        The maximum flux (in image units) a source can have in the
+        peak pixel to be included in the output catalogs.  Used to
+        filter out saturated sources.  Default 99999.
+    out : str, optional
+        The measurments to be recorded in the output catalogs.  Each
+        character corresponds to one output column.  The default is
+        'xympqk' which gives: x coordinate, y coordinate, instrumental
+        magnitude, peak pixel value, quality of fit (0 is perfect
+        fit), and the chip the star was detected on (chip 1 or chip 2
+        for UVIS).  If being used with other functions in this package
+        x, y, m, q and k must be included in the outputs.  More
+        measurements will be supported at a later date.
+    executable_path : str, optional
+        The path to the hst1pass.e compiled executable.  If not given,
+        the code is assumed to be in the current working directory.
+    """
+
     if not executable_path:
         executable_path = '.'
     if not executable_path.endswith('hst1pass.e'):
         executable_path = os.path.join(executable_path, 'hst1pass.e')
 
-    if type(images) != str:
+    if type(input_images) != str:
         try:
-            images = ' '.join(images)
+            input_images = ' '.join(input_images)
         except:
-            raise ValueError('Could not interpret inputs.  First argument must either be a string or list of images')
+            raise ValueError('Could not interpret inputs. \
+            First argument must either be a string or list of images')
 
 
-    cmd = '{} HMIN={} FMIN={} PMAX={} OUT={} {}'.format(executable_path, hmin, fmin, pmax, out, images)
+    cmd = '{} HMIN={} FMIN={} PMAX={} OUT={} {}'.format(executable_path,
+                                                        hmin,
+                                                        fmin,
+                                                        pmax,
+                                                        out,
+                                                        input_images)
     print cmd
     os.system(cmd)
