@@ -112,7 +112,7 @@ def iraf_style_photometry(
     #
     # This means error needs to be squared.
     # If no error_array error = flux ** .5
-    if error_array:
+    if error_array is not None:
         flux_error = compute_phot_error(phot['aperture_sum_err']**2.0,
                                         bg_phot, bg_method, ap_area,
                                         epadu)
