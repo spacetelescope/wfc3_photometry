@@ -314,7 +314,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
 
 
 def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
-                 out='xympqk', executable_path=None):
+                 out='xympqk', executable_path=None, **kwargs):
     """
     Run hst1pass.e Fortran code on images to produce initial catalogs.
 
@@ -359,6 +359,16 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     if not executable_path.endswith('hst1pass.e'):
         executable_path = os.path.join(executable_path, 'hst1pass.e')
 
+    if type(hmin) != int:
+        try:
+            hmin = int(hmin)
+        except:
+            raise ValueError('Could not convert hmin to int, hmin\
+            must be integer.')
+
+    keyword_str = ' '.join(['{}={}'.format(key, val) for \
+                            key, val in kwargs.items()]).upper()
+
     if type(input_images) != str:
         try:
             input_images = ' '.join(input_images)
@@ -367,11 +377,8 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
             First argument must either be a string or list of images')
 
 
-    cmd = '{} HMIN={} FMIN={} PMAX={} OUT={} {}'.format(executable_path,
-                                                        hmin,
-                                                        fmin,
-                                                        pmax,
-                                                        out,
-                                                        input_images)
+    cmd = '{} HMIN={} FMIN={} PMAX={} OUT={} {} {}'.format(
+           executable_path, hmin, fmin, pmax, out,
+           keyword_str, input_images)
     print cmd
-    os.system(cmd)
+    subprocess.check_output(cmd.split())
