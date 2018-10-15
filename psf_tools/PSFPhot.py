@@ -381,4 +381,15 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
            executable_path, hmin, fmin, pmax, out,
            keyword_str, input_images)
     print cmd
-    subprocess.check_output(cmd.split())
+    run_and_print_output(cmd)
+
+def run_and_print_output(command):
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
+    while True:
+        output = process.stdout.readline()
+        if output == '' and process.poll() is not None:
+            break
+        if output:
+            print output.strip()
+    rc = process.poll()
+    return rc
