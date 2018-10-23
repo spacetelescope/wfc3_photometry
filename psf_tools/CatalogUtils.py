@@ -114,3 +114,59 @@ def create_output_wcs(input_images):
     print 'The output WCS is the following: '
     print output_wcs
     return output_wcs
+
+def get_gaia_cat(input_images, cat_name='gaia'):
+    """
+    Get the Gaia catalog for the area of input images.
+
+    This function queries Gaia for a table of sources. It determines
+    the dimensions to use for the query by finding the sky positions
+    of the corners of each of the images.
+
+    """
+
+
+    print('Calculating coordinate ranges for Gaia query:')
+    footprint_list = map(get_footprints, input_images)
+
+
+    merged = []
+    for im in fp_list:
+        for ext in im:
+            merged.append(ext)
+    merged = np.vstack(merged)
+    ras = merged[:,0]
+    decs = merged[:,1]
+
+    ra_midpt = (max(ras)+min(ras))/2.
+    dec_midpt = (max(decs)+min(decs))/2.
+
+    ra_width = (np.amax(ras)-np.amin(ras))
+    dec_height = (np.amax(decs)-np.amin(decs))
+
+    coord = SkyCoord(ra=ra_midpt, dec=dec_midpt, unit=(u.degree, u.degree), frame='icrs')
+    width = Quantity(ra_width, u.deg) * 1.1
+    height = Quantity(dec_height, u.deg) * 1.1
+    r = Gaia.query_object_async(coordinate=coord, width=width, height=height)
+    assert len(r) > 0, 'No sources found in Gaia query\n'
+    print('Sources returned: {}'.format(len(r)))
+
+
+    cat = r['ra', 'dec']
+    cat.write('{}.cat'.format(cat_name), format='ascii.commented_header')
+    return '{}.cat'.format(cat_name)
+
+
+
+def get_footprints(im):
+    """Get footprints of images while handling images with >1 chip"""
+    fps = []
+    hdu = fits.open(im)
+    flt_flag = 'flt.fits' in im or 'flc.fits' in im
+    for ext in hdu:
+        if 'SCI' in ext.name:
+            hdr = ext.header
+            wcs = WCS(hdr, hdu)
+            fp = wcs.calc_footprint(hdr, undistort=flt_flag)
+            fps.append(fp)
+    return fps

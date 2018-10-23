@@ -11,11 +11,13 @@ from astropy.wcs import WCS
 from bisect import bisect_left
 from skimage.draw import polygon
 
-from CatalogUtils import create_output_wcs, make_chip_catalogs, make_tweakreg_catfile, rd_to_refpix
+from CatalogUtils import create_output_wcs, make_chip_catalogs,
+     make_tweakreg_catfile, rd_to_refpix, get_gaia_cat
 from MatchUtils import get_match_indices, make_id_list
 
 def align_images(input_images, reference_catalog=None,
-                 searchrad=None, cat_extension='.xympqk'):
+                 searchrad=None, cat_extension='.xympqk',
+                 gaia=False):
     """
     Run TweakReg on the images, using the catalogs from hst1pass.
 
@@ -38,6 +40,10 @@ def align_images(input_images, reference_catalog=None,
     cat_extension : str, optional
         Extension of the hst1pass catalog filenames.  Only changes if
         different outputs were requested in hst1pass step.
+    gaia : bool
+        Align images to Gaia?  If True, queries Gaia in region
+        encompassing input images, and saves catalog of Gaia source
+        positions, and uses this catalog in TweakReg
     """
 
     from drizzlepac import tweakreg
@@ -46,6 +52,8 @@ def align_images(input_images, reference_catalog=None,
                       for im in input_images]
     make_chip_catalogs(input_catalogs)
     make_tweakreg_catfile(input_images)
+    if gaia:
+        reference_catalog = get_gaia_cat(input_images)
     tweakreg.TweakReg(input_images, catfile='tweakreg_catlist.txt',
                       refcat=reference_catalog, searchrad=searchrad,
                       interactive=False, updatehdr=True, shiftfile=True,
@@ -83,6 +91,7 @@ def collate(match_arr, tbls):
                                         dtype=np.float64)
     ns = np.zeros(len(match_arr.T), dtype=int)
     n_images = len(tbls)
+    exptimes = np.array([tbl.meta['exptime'] for tbl in tbls])
 
     arrays = [mags, rs, ds, qs, xs, ys]
 
@@ -99,6 +108,7 @@ def collate(match_arr, tbls):
                 xs[j,i] = tbls[i]['rx'][element]
                 ys[j,i] = tbls[i]['ry'][element]
 
+    mags = mags + 2.5 * np.log10(exptimes)[None, :] + 21.1
 
     print('Clipping the fit quality')
     clipped_q = sigma_clip(qs, sigma=2.5, axis=1, copy=True)
@@ -127,7 +137,7 @@ def collate(match_arr, tbls):
     final_tbl['ystd'] = np.nanstd(ys, axis=1)
     final_tbl['n'] = np.sum(np.isnan(mags), axis=1)
 
-    return final_tbl
+    return final_tbl, mags
 
 def make_coverage_map(input_images, ref_wcs):
     """
@@ -185,19 +195,28 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
                                            save_peakmap=save_peakmap)
 
     input_catalogs = []
-    filters = []
-
+    metas = {'filters' : [], 'exptimes' : []}
     for f in input_images:
-        filt = fits.getval(f, 'FILTER')
+        if fits.getval(f, 'INSTRUME') == 'ACS':
+            hdr = fits.getheader(f)
+            filt = hdr['FILTER1']
+            if filt == 'CLEAR1L' or filt == 'CLEAR1S':
+                filt = hdr['FILTER2']
+        else:
+            filt = fits.getval(f, 'FILTER')
         cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
-        input_catalogs += sorted(glob.glob(cat_wildcard))
-        filters += [filt] * len(input_catalogs)
+        im_cats = sorted(glob.glob(cat_wildcard))
+        exptime = fits.getval(f, 'EXPTIME')
 
-    final_catalog = process_peaks(peakmap, all_int_coords,
+        input_catalogs += im_cats
+        metas['filters'] += [filt] * len(im_cats)
+        metas['exptimes'] += [exptime] * len(im_cats)
+
+    final_catalog, mags = process_peaks(peakmap, all_int_coords,
                                   input_catalogs, outwcs,
-                                  filters,
+                                  metas,
                                   min_detections=min_detections)
-    return final_catalog
+    return final_catalog, mags
 
 def make_peakmap(input_images, ref_wcs, save_peakmap=True):
     """
@@ -228,7 +247,13 @@ def make_peakmap(input_images, ref_wcs, save_peakmap=True):
     all_int_coords, input_catalogs = [], []
 
     for f in input_images:
-        filt = fits.getval(f, 'FILTER')
+        if fits.getval(f, 'INSTRUME') == 'ACS':
+            hdr = fits.getheader(f)
+            filt = hdr['FILTER1']
+            if filt == 'CLEAR1L' or filt == 'CLEAR1S':
+                filt = hdr['FILTER2']
+        else:
+            filt = fits.getval(f, 'FILTER')
         cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
         input_catalogs = sorted(glob.glob(cat_wildcard))
         for cat in input_catalogs:
@@ -250,7 +275,7 @@ def make_peakmap(input_images, ref_wcs, save_peakmap=True):
     return peakmap, all_int_coords
 
 def process_peaks(peakmap, all_int_coords, input_cats,
-                  ref_wcs, filter_list, min_detections=3):
+                  ref_wcs, metas, min_detections=3):
     """
     Analyzes peaks in the peak map, matches peaks with catalogs, and averages
 
@@ -271,8 +296,12 @@ def process_peaks(peakmap, all_int_coords, input_cats,
     ref_wcs : astropy.wcs.WCS
         WCS object to of the reference frame convert sky to pixel
         positions, and get the dimensions of the final reference frame
-    filter_list : list
-        List of filter corresponding to each input catalog
+    metas : dict
+        Dictionary containing the meta information for each input
+        catalog.  Each key is a type of information (such as 'filter'
+        or exposure time), and the corresponding value is a list with
+        one entry for each of the input catalogs.  Each entry is the
+        value of the keyword for the corresponding input catalog.
     min_detections : int, optional
         The minimum number of images a source must be detected in
         to be included in the final catalog
@@ -302,15 +331,16 @@ def process_peaks(peakmap, all_int_coords, input_cats,
     for i, cat in enumerate(input_cats):
 #         print cat
         tmp_tbl = Table.read(cat, names=colnames, format='ascii.commented_header')
-        tmp_tbl.meta['filter'] = filter_list[i]
+        tmp_tbl.meta['filter'] = metas['filters'][i]
+        tmp_tbl.meta['exptime'] = metas['exptimes'][i]
         rx, ry = ref_wcs.all_world2pix(np.array([tmp_tbl['r'],tmp_tbl['d']]).T, 1).T
         tmp_tbl['rx'] = rx
         tmp_tbl['ry'] = ry
         tbls.append(tmp_tbl)
 
     print('\nFinal step: collating properties of matched stars')
-    final_tbl = collate(res, tbls)
-    return final_tbl
+    final_tbl, mags = collate(res, tbls)
+    return final_tbl, mags
 
 
 def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
