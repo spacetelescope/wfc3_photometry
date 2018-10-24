@@ -1,11 +1,15 @@
+import astropy.units as u
 import glob
 import numpy as np
 import os
 import subprocess
 
 from astropy.io import fits
+from astropy.coordinates import SkyCoord
 from astropy.table import Table
+from astropy.units import Quantity
 from astropy.wcs import WCS
+from astroquery.gaia import Gaia
 from drizzlepac.wcs_functions import make_perfect_cd
 from stwcs.wcsutil.hstwcs import HSTWCS
 from stwcs.distortion import utils
@@ -131,7 +135,7 @@ def get_gaia_cat(input_images, cat_name='gaia'):
 
 
     merged = []
-    for im in fp_list:
+    for im in footprint_list:
         for ext in im:
             merged.append(ext)
     merged = np.vstack(merged)

@@ -11,8 +11,8 @@ from astropy.wcs import WCS
 from bisect import bisect_left
 from skimage.draw import polygon
 
-from CatalogUtils import create_output_wcs, make_chip_catalogs,
-     make_tweakreg_catfile, rd_to_refpix, get_gaia_cat
+from CatalogUtils import create_output_wcs, make_chip_catalogs, \
+    make_tweakreg_catfile, rd_to_refpix, get_gaia_cat
 from MatchUtils import get_match_indices, make_id_list
 
 def align_images(input_images, reference_catalog=None,
@@ -122,11 +122,26 @@ def collate(match_arr, tbls):
     total_nans = np.sum(np.isnan(mags))
     print('Rejected {} measurements'.format(total_nans-orig_nans))
 
+    print('Performing zeropoint normalization')
+    # Get the top 10% of unsaturated stars
+    qbar = np.nanmean(qs, axis=1)
+    mbar = np.nanmean(mags, axis=1)
+    good_qs = qbar > 0.
+    upper_mag = np.percentile(mbar[good_qs], 10.)
+    mag_mask = np.logical_and(good_qs, mbar < upper_mag)
+
+    # Find the offsetof each image from the mean mag for each star
+    offsets = mags - mbar[:,None]
+    meds = np.nanmedian(offsets[mask], axis = 0)
+
+    #Subtract the median
+    mags = mags - meds[None, :]
+
     final_tbl = Table()
-    final_tbl['mbar'] = np.nanmean(mags, axis=1)
+    final_tbl['mbar'] = mbar = np.nanmean(mags, axis=1)
     final_tbl['rbar'] = np.nanmean(rs, axis=1)
     final_tbl['dbar'] = np.nanmean(ds, axis=1)
-    final_tbl['qbar'] = np.nanmean(qs, axis=1)
+    final_tbl['qbar'] = qbar
     final_tbl['xbar'] = np.nanmean(xs, axis=1)
     final_tbl['ybar'] = np.nanmean(ys, axis=1)
     final_tbl['mstd'] = np.nanstd(mags, axis=1)
@@ -137,7 +152,7 @@ def collate(match_arr, tbls):
     final_tbl['ystd'] = np.nanstd(ys, axis=1)
     final_tbl['n'] = np.sum(np.isnan(mags), axis=1)
 
-    return final_tbl, mags
+    return final_tbl
 
 def make_coverage_map(input_images, ref_wcs):
     """
@@ -216,7 +231,7 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
                                   input_catalogs, outwcs,
                                   metas,
                                   min_detections=min_detections)
-    return final_catalog, mags
+    return final_catalog
 
 def make_peakmap(input_images, ref_wcs, save_peakmap=True):
     """
@@ -340,7 +355,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
 
     print('\nFinal step: collating properties of matched stars')
     final_tbl, mags = collate(res, tbls)
-    return final_tbl, mags
+    return final_tbl
 
 
 def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
