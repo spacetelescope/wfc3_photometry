@@ -132,7 +132,7 @@ def collate(match_arr, tbls):
 
     # Find the offsetof each image from the mean mag for each star
     offsets = mags - mbar[:,None]
-    meds = np.nanmedian(offsets[mask], axis = 0)
+    meds = np.nanmedian(offsets[mag_mask], axis = 0)
 
     #Subtract the median
     mags = mags - meds[None, :]
