@@ -227,7 +227,7 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
         metas['filters'] += [filt] * len(im_cats)
         metas['exptimes'] += [exptime] * len(im_cats)
 
-    final_catalog, mags = process_peaks(peakmap, all_int_coords,
+    final_catalog = process_peaks(peakmap, all_int_coords,
                                   input_catalogs, outwcs,
                                   metas,
                                   min_detections=min_detections)
@@ -354,7 +354,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
         tbls.append(tmp_tbl)
 
     print('\nFinal step: collating properties of matched stars')
-    final_tbl, mags = collate(res, tbls)
+    final_tbl = collate(res, tbls)
     return final_tbl
 
 
