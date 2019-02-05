@@ -279,7 +279,7 @@ class RadialProfile:
 
         ax.scatter(self.distances, self.values, alpha=.5)
         min_y = np.amin(self.values[self.values >0.])/2.
-        ax.set_ylim(min_y, np.amax(self.values)*2.)
+        ax.set_ylim(min_y, np.nanmax(self.values)*2.)
         ax.set_xlim(0.)
 
         ax.set_yscale('log')

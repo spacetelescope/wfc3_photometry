@@ -11,6 +11,7 @@ from astropy.units import Quantity
 from astropy.wcs import WCS
 from astroquery.gaia import Gaia
 from drizzlepac.wcs_functions import make_perfect_cd
+from skimage.draw import polygon
 from stwcs.wcsutil.hstwcs import HSTWCS
 from stwcs.distortion import utils
 
@@ -86,7 +87,33 @@ def rd_to_refpix(cat, ref_wcs):
 
 #------------------Other utilities-------------------------------------
 
-def create_output_wcs(input_images):
+def create_coverage_map(input_images, ref_wcs):
+    """
+    Creates coverage map of input images in reference frame
+
+    This will soon be expanded to be used with the peak map for
+    source selection for the final averaging.  Dividing the peak map
+    by the coverage map gives the fractional detection percentage.
+    """
+
+    print('Computing image coverage map.')
+
+    hst_wcs_list = []
+    for f in input_images:
+        hw1 = HSTWCS(f, ext=1)
+        hw2 = HSTWCS(f, ext=4)
+        hst_wcs_list.append(hw1)
+        hst_wcs_list.append(hw2)
+
+    coverage_image = np.zeros(ref_wcs._naxis[::-1], dtype=int)
+
+    for hw in hst_wcs_list:
+        vx, vy = ref_wcs.all_world2pix(hw.calc_footprint(), 0).T - .5
+        poly_xs, poly_ys = polygon(vx, vy)
+        coverage_image[poly_ys, poly_xs] += 1
+    return coverage_image
+
+def create_output_wcs(input_images, make_coverage_map=False):
     """
     Calculates a WCS for the final reference frame
 

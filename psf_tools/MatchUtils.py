@@ -1,5 +1,7 @@
+import astropy.units as u
 import numpy as np
 
+from astropy.coordinates import SkyCoord, match_coordinates_sky
 from bisect import bisect_left
 
 def make_id_list(coord_ints, x_digits=None, y_digits=None):
@@ -63,3 +65,19 @@ def binary_search_index(a, x):
     if i != len(a) and a[i] == x:
         return i
     return -1
+
+def match_final_catalogs(cat1, cat2, max_distance=.05):
+    if type(cat1) == str:
+        cat1 = Table.read(cat1, format='ascii.commented_header')
+    if type(cat2) == str:
+        cat2 = Table.read(cat2, format='ascii.commented_header')
+
+    cat1_skycoord = SkyCoord(cat1['rbar']*u.deg, cat1['dbar']*u.deg)
+    cat2_skycoord = SkyCoord(cat2['rbar']*u.deg, cat2['dbar']*u.deg)
+
+    idx, ang, wat = cat1_skycoord.match_to_catalog_sky(cat2_skycoord)
+    distance_mask = ang.arcsec  < max_distance
+
+    matched_cat1 = cat1[distance_mask]
+    matched_cat2 = cat2[idx][distance_mask]
+    return

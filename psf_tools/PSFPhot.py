@@ -3,6 +3,7 @@ import matplotlib.pyplot as  plt
 import numpy as np
 import os
 import subprocess
+import urllib
 
 from astropy.io import fits
 from astropy.stats import sigma_clip
@@ -12,12 +13,11 @@ from bisect import bisect_left
 from skimage.draw import polygon
 
 from CatalogUtils import create_output_wcs, make_chip_catalogs, \
-    make_tweakreg_catfile, rd_to_refpix, get_gaia_cat
+    make_tweakreg_catfile, rd_to_refpix, get_gaia_cat, create_coverage_map
 from MatchUtils import get_match_indices, make_id_list
 
-def align_images(input_images, reference_catalog=None,
-                 searchrad=None, cat_extension='.xympqk',
-                 gaia=False):
+def align_images(input_catalogs, reference_catalog=None,
+                 searchrad=None, gaia=False):
     """
     Run TweakReg on the images, using the catalogs from hst1pass.
 
@@ -29,17 +29,14 @@ def align_images(input_images, reference_catalog=None,
 
     Parameters
     ----------
-    input_images : list
-        List of image filenames (strings).
+    input_catalogs : list
+        List of catalog filenames from hst1pass (strings).
     reference_catalog : str, optional
         File name of the reference catalog.  If None images are aligned
         to first image in input_images.
     searchrad : float, optional
         Search radius in arcseconds, if not given, uses tweakreg
         default of 1 arcsec.
-    cat_extension : str, optional
-        Extension of the hst1pass catalog filenames.  Only changes if
-        different outputs were requested in hst1pass step.
     gaia : bool
         Align images to Gaia?  If True, queries Gaia in region
         encompassing input images, and saves catalog of Gaia source
@@ -47,18 +44,22 @@ def align_images(input_images, reference_catalog=None,
     """
 
     from drizzlepac import tweakreg
-    input_catalogs = [
-                      im.replace('.fits', cat_extension)
-                      for im in input_images]
-    make_chip_catalogs(input_catalogs)
+    input_images = [os.path.splitext(cat)[0] + '.fits' \
+                    for cat in input_catalogs]
+
     make_tweakreg_catfile(input_images)
     if gaia:
+        if reference_catalog:
+            print('Gaia set to true, overriding reference catalog \
+                    with Gaia catalog')
         reference_catalog = get_gaia_cat(input_images)
     tweakreg.TweakReg(input_images, catfile='tweakreg_catlist.txt',
                       refcat=reference_catalog, searchrad=searchrad,
                       interactive=False, updatehdr=True, shiftfile=True,
                       reusename=True)
 
+    print('Updating Catalogs with new RA/Dec')
+    make_chip_catalogs(input_catalogs)
 
 def collate(match_arr, tbls):
     """
@@ -94,6 +95,7 @@ def collate(match_arr, tbls):
     exptimes = np.array([tbl.meta['exptime'] for tbl in tbls])
 
     arrays = [mags, rs, ds, qs, xs, ys]
+    print match_arr.shape
 
     for j, row in enumerate(match_arr.T):
         for i, element in enumerate(row):
@@ -138,7 +140,7 @@ def collate(match_arr, tbls):
     mags = mags - meds[None, :]
 
     final_tbl = Table()
-    final_tbl['mbar'] = mbar = np.nanmean(mags, axis=1)
+    final_tbl['mbar'] = np.nanmean(mags, axis=1)
     final_tbl['rbar'] = np.nanmean(rs, axis=1)
     final_tbl['dbar'] = np.nanmean(ds, axis=1)
     final_tbl['qbar'] = qbar
@@ -150,26 +152,10 @@ def collate(match_arr, tbls):
     final_tbl['qstd'] = np.nanstd(qs, axis=1)
     final_tbl['xstd'] = np.nanstd(xs, axis=1)
     final_tbl['ystd'] = np.nanstd(ys, axis=1)
-    final_tbl['n'] = np.sum(np.isnan(mags), axis=1)
+    final_tbl['n'] = np.sum(~np.isnan(mags), axis=1)
 
     return final_tbl
 
-def make_coverage_map(input_images, ref_wcs):
-    """
-    Creates coverage map of input images in reference frame
-
-    This will soon be expanded to be used with the peak map for
-    source selection for the final averaging.  Dividing the peak map
-    by the coverage map gives the fractional detection percentage.
-    """
-
-    coverage_image = np.zeros(output_wcs._naxis[::-1], dtype=int)
-
-    for hw in hst_wcs_list:
-        vx, vy = ref.all_world2pix(hw.calc_footprint(), 0).T
-        poly_xs, poly_ys = polygon(vx, vy)
-        coverage_image[poly_ys, poly_xs] += 1
-    return coverage_image
 
 def make_final_table(input_images, save_peakmap=True, min_detections=3):
     """
@@ -194,9 +180,12 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
         List of image filenames (strings).
     save_peakmap : bool, optional
         Flag to save the map of detections (peakmap).  Default True
-    min_detections : int, optional
-        The minimum number of images a source must be detected in
-        to be included in the final catalog
+    min_detections : int or float, optional
+        If int: minimum number of images a source must be detected in
+        to be included in the final catalog.
+        If float: minimum fraction of images a source must be detected
+        in to be included in the final catalog.
+        Default is 3.
 
     Returns
     -------
@@ -208,6 +197,16 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
     peakmap, all_int_coords = make_peakmap(input_images,
                                            outwcs,
                                            save_peakmap=save_peakmap)
+
+
+    cov_map = create_coverage_map(input_images, outwcs)
+
+
+    pri_hdu = fits.PrimaryHDU()
+    im_hdu = fits.hdu.ImageHDU(data=cov_map, header=outwcs.to_header())
+    hdul = fits.HDUList([pri_hdu, im_hdu])
+    hdul.writeto('python_coverage_map.fits', overwrite=True)
+
 
     input_catalogs = []
     metas = {'filters' : [], 'exptimes' : []}
@@ -227,10 +226,21 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
         metas['filters'] += [filt] * len(im_cats)
         metas['exptimes'] += [exptime] * len(im_cats)
 
+
     final_catalog = process_peaks(peakmap, all_int_coords,
                                   input_catalogs, outwcs,
-                                  metas,
+                                  metas, cov_map,
                                   min_detections=min_detections)
+
+    int_xys = np.array([final_catalog['xbar']-1.5,
+                        final_catalog['ybar']-1.5]).astype(int)
+
+    int_xys = (int_xys[0,:], int_xys[1,:])
+
+
+    # print int_xys.shape
+    # print n_expected
+    # final_catalog['n_expected'] = n_expected
     return final_catalog
 
 def make_peakmap(input_images, ref_wcs, save_peakmap=True):
@@ -277,7 +287,7 @@ def make_peakmap(input_images, ref_wcs, save_peakmap=True):
 
     all_int_coords = np.array(all_int_coords)
 
-    peakmap = np.zeros((ref_wcs._naxis2, ref_wcs._naxis1), dtype=int)
+    peakmap = np.zeros((ref_wcs._naxis[::-1]), dtype=int)
     for coord_list in all_int_coords:
         peakmap[coord_list[:,1], coord_list[:,0]] += 1
 
@@ -290,7 +300,7 @@ def make_peakmap(input_images, ref_wcs, save_peakmap=True):
     return peakmap, all_int_coords
 
 def process_peaks(peakmap, all_int_coords, input_cats,
-                  ref_wcs, metas, min_detections=3):
+                  ref_wcs, metas, coverage_map, min_detections=3):
     """
     Analyzes peaks in the peak map, matches peaks with catalogs, and averages
 
@@ -330,7 +340,12 @@ def process_peaks(peakmap, all_int_coords, input_cats,
 
 
     print('\nMatching stars from input images with peaks in peakmap')
-    match_ints = np.where(peakmap.T>=min_detections)
+    if min_detections < 1.:
+        ratio = peakmap.astype(float)/coverage_map.astype(float)
+        match_ints = np.where(ratio.T>=min_detections)
+    # print(np.nanmin(peakmap.T[match_ints]), np.nanmax(peakmap.T[match_ints]))
+    else:
+        match_ints = np.where(peakmap.T>=min_detections)
     match_ids = make_id_list(match_ints)
 
     res = []
@@ -340,6 +355,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
         res.append(tmp_matches)
 
     res = np.array(res)
+    # det_vals =  peakmap.T[match_ints]\
 
     tbls = []
     colnames = ['x', 'y', 'r', 'd', 'm', 'q']
@@ -355,6 +371,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
 
     print('\nFinal step: collating properties of matched stars')
     final_tbl = collate(res, tbls)
+    final_tbl['n_expected'] = coverage_map.T[match_ints]
     return final_tbl
 
 
@@ -397,6 +414,11 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     executable_path : str, optional
         The path to the hst1pass.e compiled executable.  If not given,
         the code is assumed to be in the current working directory.
+
+    Returns
+    -------
+    expected_output_list : list
+        List of the output catalogs from running hst1pass
     """
 
     if not executable_path:
@@ -411,22 +433,124 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
             raise ValueError('Could not convert hmin to int, hmin\
             must be integer.')
 
-    keyword_str = ' '.join(['{}={}'.format(key, val) for \
-                            key, val in kwargs.items()]).upper()
+    keyword_str = ' '.join(['{}={}'.format(key.upper(), val) for \
+                            key, val in kwargs.items()])
+
+    all_psf_filts = ['F225W', 'F275W', 'F336W', 'F390W', 'F438W',
+                  'F467M', 'F555W', 'F606W', 'F775W', 'F814W', 'F850L']
+    focus_filts = ['F275W', 'F336W', 'F410M', 'F438W', 'F467M',
+                    'F606W', 'F814W']
+
+    filt = check_images(input_images)
+
+
+    psf_directory = os.path.split(executable_path)[0]
+    if 'FOCUS' in keyword_str and 'PSF=' not in keyword_str:
+        if filt not in focus_filts:
+            raise('{} does not have a focus dependent PSF \
+                    model file, cannot find focus'.format(filt))
+        psf_file = get_focus_dependent_psf(psf_directory, filt)
+        keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
+    elif 'PSF=' not in keyword_str and filt not in all_psf_filts:
+        if filt not in all_psf_filts:
+            raise('{} does not have a focus PSF \
+                    model file, cannot find focus'.format(filt))
+        psf_file = get_standard_psf(psf_directory, filt)
+        keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
+
 
     if type(input_images) != str:
         try:
             input_images = ' '.join(input_images)
         except:
-            raise ValueError('Could not interpret inputs. \
+            raise TypeError('Could not interpret inputs. \
             First argument must either be a string or list of images')
 
+
+
+    expected_outputs = input_images.replace('.fits', '.{}'.format(out))
+    expected_output_list = expected_outputs.split()
 
     cmd = '{} HMIN={} FMIN={} PMAX={} OUT={} {} {}'.format(
            executable_path, hmin, fmin, pmax, out,
            keyword_str, input_images)
     print cmd
     run_and_print_output(cmd)
+    make_chip_catalogs(expected_output_list)
+    return expected_output_list
+
+def get_focus_dependent_psf(path, filter):
+    """Checks if PSF file exists and if not downloads from WFC3 page"""
+    match_str = '{}/STDPBF_WFC3UV_{}.fits'.format(path, filter)
+    psf_file_matches = glob.glob(match_str)
+    if len(psf_file_matches) == 0:
+        print('Downloading PSF')
+        if filter == 'F606W':
+            psf_filename = 'STDPBF_WFC3UV_{}_FIX.fits'.format(filter)
+            psf_dest = '{}/{}'.format(path, psf_filename.repalce(
+                '_FIX', ''))
+        else:
+            psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filter)
+            psf_dest = '{}/{}'.format(path, psf_filename)
+
+        url = 'http://www.stsci.edu/~jayander/STDPBFs/WFC3UV/{}'.format(
+            psf_filename)
+        urllib.urlretrieve(url, psf_dest)
+        print('Saving PSF file to {}'.format(psf_dest))
+    else:
+        psf_dest = psf_file_matches[0]
+
+    print('Using PSF file {}'.format(psf_dest))
+    return psf_dest
+
+def get_standard_psf(path, filter):
+    """Checks if PSF file exists and if not downloads from WFC3 page"""
+    match_str = '{}/PSFSTD_WFC3UV_{}.fits'.format(path, filter)
+    psf_file_matches = glob.glob(match_str)
+    if len(psf_file_matches) == 0:
+        print('Downloading PSF')
+        psf_filename = 'STDPSF_WFC3UV_{}.fits'.format(filter)
+        psf_dest = '{}/{}'.format(path, psf_filename)
+
+        url = 'http://www.stsci.edu/~jayander/STDPSFs/WFC3UV/{}'.format(
+            psf_filename)
+        urllib.urlretrieve(url, psf_dest)
+        print('Saving PSF file to {}'.format(psf_dest))
+    else:
+        psf_dest = psf_file_matches[0]
+
+    print('Using PSF file {}'.format(psf_dest))
+    return psf_dest
+
+def check_images(input_images):
+    """Checks images to make sure they are wfc3 and one filter"""
+
+    filter_list = []
+    for im in input_images:
+        hdr = fits.getheader(im)
+        if hdr['INSTRUME'] != 'WFC3':
+            raise ValueError('Image {} is not a WFC3 image'.format(im))
+        else:
+            filter_list.append(hdr['FILTER'])
+
+    if len(set(filter_list)) != 1:
+        for i, im in enumerate(input_images):
+            print('{}: {}'.format(im,filter_list[i]))
+        raise RuntimeError('Multiple filters detected in inputs, \
+        only run on one filter at a time.')
+
+    return filter_list[0]
+
+def check_focus(input_catalogs):
+    focus_dict = {}
+    for cat in input_catalogs:
+        lines = open(cat).readlines()
+        for line in lines:
+            if 'FOC_LEVu' in line:
+                focus = line.split()[-1]
+                break
+        focus_dict[cat] = float(focus)
+    return focus_dict
 
 def run_and_print_output(command):
     process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)

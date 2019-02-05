@@ -1,4 +1,8 @@
 
+c
+c make sure it runs without GDC if it isn't needed... 
+c
+
 #define _PI_    3.141592653589793238462643d0
 
 c
@@ -347,7 +351,8 @@ c-----------------------------------------------------------------------
          print*,'        [WCS=FIND/1ST]                    '
          print*,'           [HDR=]                         '
          print*,'           [RDC=]                         '
-         print*,'        [MSORT+] [HSORT+] [STARDB+]       '
+         print*,'        [MSORT+] [HSORT+]                 '
+         print*,'        [STARDB+]                         '
          print*,'        [OUT=uvMrd]                       '
          print*,'        [REG=xy,XY,uv,rd]                 '
          print*,'        [CATMAT=2MASS/1st]                '
