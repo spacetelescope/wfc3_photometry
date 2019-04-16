@@ -17,7 +17,7 @@ from CatalogUtils import create_output_wcs, make_chip_catalogs, \
 from MatchUtils import get_match_indices, make_id_list
 
 def align_images(input_catalogs, reference_catalog=None,
-                 searchrad=None, gaia=False):
+                 searchrad=None, gaia=False, **kwargs):
     """
     Run TweakReg on the images, using the catalogs from hst1pass.
 
@@ -41,6 +41,11 @@ def align_images(input_catalogs, reference_catalog=None,
         Align images to Gaia?  If True, queries Gaia in region
         encompassing input images, and saves catalog of Gaia source
         positions, and uses this catalog in TweakReg
+    **kwargs : keyword arguments, optional
+        Other keyword arguments to be passed to TweakReg.  Examples
+        could include minflux, maxflux, fluxunits.  More information
+        available at
+        https://drizzlepac.readthedocs.io/en/latest/tweakreg.html
     """
 
     from drizzlepac import tweakreg
@@ -56,7 +61,7 @@ def align_images(input_catalogs, reference_catalog=None,
     tweakreg.TweakReg(input_images, catfile='tweakreg_catlist.txt',
                       refcat=reference_catalog, searchrad=searchrad,
                       interactive=False, updatehdr=True, shiftfile=True,
-                      reusename=True)
+                      reusename=True, clean=True, **kwargs)
 
     print('Updating Catalogs with new RA/Dec')
     make_chip_catalogs(input_catalogs)
@@ -94,6 +99,7 @@ def collate(match_arr, tbls):
     n_images = len(tbls)
     exptimes = np.array([tbl.meta['exptime'] for tbl in tbls])
 
+
     arrays = [mags, rs, ds, qs, xs, ys]
     print match_arr.shape
 
@@ -111,6 +117,8 @@ def collate(match_arr, tbls):
                 ys[j,i] = tbls[i]['ry'][element]
 
     mags = mags + 2.5 * np.log10(exptimes)[None, :] + 21.1
+    if 'F1' in tbls[0].meta['filter'] or 'F1' in tbls[0].meta['filter']:
+        mags -= 2.5 * np.log10(exptimes)[None, :]
 
     print('Clipping the fit quality')
     clipped_q = sigma_clip(qs, sigma=2.5, axis=1, copy=True)
@@ -232,15 +240,8 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
                                   metas, cov_map,
                                   min_detections=min_detections)
 
-    int_xys = np.array([final_catalog['xbar']-1.5,
-                        final_catalog['ybar']-1.5]).astype(int)
-
-    int_xys = (int_xys[0,:], int_xys[1,:])
-
-
-    # print int_xys.shape
-    # print n_expected
-    # final_catalog['n_expected'] = n_expected
+    final_catalog.write('{}_final_cat.txt'.format(filt),
+                        format='ascii.commented_header')
     return final_catalog
 
 def make_peakmap(input_images, ref_wcs, save_peakmap=True):
@@ -343,7 +344,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
     if min_detections < 1.:
         ratio = peakmap.astype(float)/coverage_map.astype(float)
         match_ints = np.where(ratio.T>=min_detections)
-    # print(np.nanmin(peakmap.T[match_ints]), np.nanmax(peakmap.T[match_ints]))
+
     else:
         match_ints = np.where(peakmap.T>=min_detections)
     match_ids = make_id_list(match_ints)
@@ -355,7 +356,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
         res.append(tmp_matches)
 
     res = np.array(res)
-    # det_vals =  peakmap.T[match_ints]\
+
 
     tbls = []
     colnames = ['x', 'y', 'r', 'd', 'm', 'q']
@@ -394,7 +395,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     input_images : list
         List of image filenames (strings).
     hmin : int
-        DEFINE HMIN HERE. Default 5
+        Minimum separation between stars. Default 5
     fmin : int, optional
         The minimum flux (in image units) a source must have to be
         included in the output catalogs. Default 1000.
@@ -436,8 +437,10 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     keyword_str = ' '.join(['{}={}'.format(key.upper(), val) for \
                             key, val in kwargs.items()])
 
-    all_psf_filts = ['F225W', 'F275W', 'F336W', 'F390W', 'F438W',
-                  'F467M', 'F555W', 'F606W', 'F775W', 'F814W', 'F850L']
+    all_psf_filts = ['F105W', 'F110W', 'F125W', 'F127M', 'F139M',
+                    'F140W', 'F160W', 'F225W', 'F275W', 'F336W',
+                    'F390W', 'F438W', 'F467M', 'F555W', 'F606W',
+                    'F775W', 'F814W', 'F850LP']
     focus_filts = ['F275W', 'F336W', 'F410M', 'F438W', 'F467M',
                     'F606W', 'F814W']
 
@@ -487,7 +490,7 @@ def get_focus_dependent_psf(path, filter):
         print('Downloading PSF')
         if filter == 'F606W':
             psf_filename = 'STDPBF_WFC3UV_{}_FIX.fits'.format(filter)
-            psf_dest = '{}/{}'.format(path, psf_filename.repalce(
+            psf_dest = '{}/{}'.format(path, psf_filename.replace(
                 '_FIX', ''))
         else:
             psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filter)
@@ -503,17 +506,22 @@ def get_focus_dependent_psf(path, filter):
     print('Using PSF file {}'.format(psf_dest))
     return psf_dest
 
-def get_standard_psf(path, filter):
+def get_standard_psf(path, filt):
     """Checks if PSF file exists and if not downloads from WFC3 page"""
-    match_str = '{}/PSFSTD_WFC3UV_{}.fits'.format(path, filter)
+    if 'F1' in filt:
+        detector = 'WFC3IR'
+    else:
+        detector = 'WFC3UV'
+    match_str = '{}/PSFSTD_{}_{}.fits'.format(path, detector, filt)
+
     psf_file_matches = glob.glob(match_str)
     if len(psf_file_matches) == 0:
         print('Downloading PSF')
-        psf_filename = 'STDPSF_WFC3UV_{}.fits'.format(filter)
+        psf_filename = 'STDPSF_{}_{}.fits'.format(detector, filt)
         psf_dest = '{}/{}'.format(path, psf_filename)
 
-        url = 'http://www.stsci.edu/~jayander/STDPSFs/WFC3UV/{}'.format(
-            psf_filename)
+        url = 'http://www.stsci.edu/~jayander/STDPSFs/{}/{}'.format(
+            detector, psf_filename)
         urllib.urlretrieve(url, psf_dest)
         print('Saving PSF file to {}'.format(psf_dest))
     else:

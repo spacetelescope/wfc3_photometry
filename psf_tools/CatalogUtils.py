@@ -17,7 +17,6 @@ from stwcs.distortion import utils
 
 def make_chip_catalogs(input_catalogs):
     """Breaks up hst1pass catalogs and saves per chip catalogs."""
-    # Can probably clean up this function for better DRYness.
 
     for f in input_catalogs:
         print f
@@ -30,33 +29,57 @@ def make_chip_catalogs(input_catalogs):
         m = tmp['m']
         q = tmp['q']
         chip = tmp['k'].data
-        sci_1_inds = chip == 1
+        inds = chip == 1 # the chip 1 indices
 
-        x1 = x[sci_1_inds]
-        y1 = y[sci_1_inds]
-        m1 = m[sci_1_inds]
-        q1 = q[sci_1_inds]
-        wcs_sci_1 = WCS(fits.getheader(image_name, 1), hdu)
-        xy1 = np.array([x1,y1]).T
-        rd1 = wcs_sci_1.all_pix2world(xy1, 1)
+        detector = hdu[0].header['DETECTOR']
+        sub_flag = hdu[0].header['SUBARRAY']
 
-        x2 = x[~sci_1_inds]
-        y2 = y[~sci_1_inds] - 2048
-        m2 = m[~sci_1_inds]
-        q2 = q[~sci_1_inds]
-        wcs_sci_2 = WCS(fits.getheader(image_name, 4), hdu)
-        rd2 = wcs_sci_2.all_pix2world(np.array([x2,y2]).T, 1)
+
+        ext_names = [ext.name for ext in hdu]
+        n_sci = ext_names.count('SCI')
+
+        for i in range(n_sci):
+            if i == 1: # represents sci 2, python 0 indexed
+                inds = ~inds
+            xi = x[inds]
+            yi = y[inds] - 2048.0 * float(i) # subtract chip height
+            mi = m[inds]
+            qi = q[inds]
+            wcs_i = WCS(fits.getheader(image_name, 'sci', i+1), hdu)
+            xyi = np.array([xi,yi]).T
+            rdi = wcs_i.all_pix2world(xyi, 1)
+            xyrdi = np.vstack([xi, yi, rdi[:,0], rdi[:,1], mi, qi]).T
+            tablei = Table(xyrdi, names=['x', 'y', 'r','d','m', 'q'])
+            tablei.write(image_root + '_sci{}_xyrd.cat'.format(i+1),
+                        format='ascii.commented_header')
 
         hdu.close()
 
-        xyrd1 = np.vstack([x1, y1, rd1[:,0], rd1[:,1], m1, q1]).T
-        xyrd2 = np.vstack([x2, y2, rd2[:,0], rd2[:,1], m2, q2]).T
-        table1 = Table(xyrd1, names=['x', 'y', 'r','d','m', 'q'])
-        table2 = Table(xyrd2, names=['x', 'y', 'r','d','m', 'q'])
-        table1.write(image_root + '_sci1_xyrd.cat', format='ascii.commented_header')
-        table2.write(image_root + '_sci2_xyrd.cat', format='ascii.commented_header')
-        # np.savetxt(image_root + '_sci1_xyrd.cat', xyrd1)
-        # np.savetxt(image_root + '_sci2_xyrd.cat', xyrd2)
+        # x1 = x[sci_1_inds]
+        # y1 = y[sci_1_inds]
+        # m1 = m[sci_1_inds]
+        # q1 = q[sci_1_inds]
+        # wcs_sci_1 = WCS(fits.getheader(image_name, 1), hdu)
+        # xy1 = np.array([x1,y1]).T
+        # rd1 = wcs_sci_1.all_pix2world(xy1, 1)
+        #
+        # x2 = x[~sci_1_inds]
+        # y2 = y[~sci_1_inds] - 2048
+        # m2 = m[~sci_1_inds]
+        # q2 = q[~sci_1_inds]
+        # wcs_sci_2 = WCS(fits.getheader(image_name, 4), hdu)
+        # rd2 = wcs_sci_2.all_pix2world(np.array([x2,y2]).T, 1)
+        #
+        # hdu.close()
+        #
+        # xyrd1 = np.vstack([x1, y1, rd1[:,0], rd1[:,1], m1, q1]).T
+        # xyrd2 = np.vstack([x2, y2, rd2[:,0], rd2[:,1], m2, q2]).T
+        # table1 = Table(xyrd1, names=['x', 'y', 'r','d','m', 'q'])
+        # table2 = Table(xyrd2, names=['x', 'y', 'r','d','m', 'q'])
+        # table1.write(image_root + '_sci1_xyrd.cat', format='ascii.commented_header')
+        # table2.write(image_root + '_sci2_xyrd.cat', format='ascii.commented_header')
+        # # np.savetxt(image_root + '_sci1_xyrd.cat', xyrd1)
+        # # np.savetxt(image_root + '_sci2_xyrd.cat', xyrd2)
 
 def make_tweakreg_catfile(input_images):
     """Makes the list of catalogs associated with each image for TweakReg"""
@@ -100,10 +123,12 @@ def create_coverage_map(input_images, ref_wcs):
 
     hst_wcs_list = []
     for f in input_images:
-        hw1 = HSTWCS(f, ext=1)
-        hw2 = HSTWCS(f, ext=4)
-        hst_wcs_list.append(hw1)
-        hst_wcs_list.append(hw2)
+        hdu = fits.open(f)
+        for i, ext in enumerate(hdu):
+            if 'SCI' in ext.name:
+                hst_wcs_list.append(HSTWCS(hdu, ext=i))
+
+
 
     coverage_image = np.zeros(ref_wcs._naxis[::-1], dtype=int)
 
@@ -135,10 +160,11 @@ def create_output_wcs(input_images, make_coverage_map=False):
 
     hst_wcs_list = []
     for f in input_images:
-        hw1 = HSTWCS(f, ext=1)
-        hw2 = HSTWCS(f, ext=4)
-        hst_wcs_list.append(hw1)
-        hst_wcs_list.append(hw2)
+        hdu = fits.open(f)
+        for i, ext in enumerate(hdu):
+            if 'SCI' in ext.name:
+                hst_wcs_list.append(HSTWCS(hdu, ext=i))
+
     output_wcs = utils.output_wcs(hst_wcs_list, undistort=True)
     output_wcs.wcs.cd = make_perfect_cd(output_wcs)
 
@@ -201,3 +227,7 @@ def get_footprints(im):
             fp = wcs.calc_footprint(hdr, undistort=flt_flag)
             fps.append(fp)
     return fps
+
+
+def pixel_area_correction(catalog):
+    pass

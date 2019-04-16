@@ -2,6 +2,7 @@ import astropy.units as u
 import numpy as np
 
 from astropy.coordinates import SkyCoord, match_coordinates_sky
+from astropy.table import Table
 from bisect import bisect_left
 
 def make_id_list(coord_ints, x_digits=None, y_digits=None):
@@ -67,6 +68,27 @@ def binary_search_index(a, x):
     return -1
 
 def match_final_catalogs(cat1, cat2, max_distance=.05):
+    """
+    Matches two final catalogs so each row of the returned tables
+    correspond to the same star.
+
+    This function takes in two final catalogs and matches the sources
+    listed in them.  This is done by finding closest point (in sky
+    space) of in cat2 for every point in cat1.  Points closer than
+    max_distance are considered to be the same source. The
+    returned tables only contain the sources that were matched.
+
+    Parameters
+    ----------
+    cat1 : astropy.table.Table or str
+        The first table (or filename) to be matched
+    cat2 : astropy.table.Table or str
+        The second table (or filename) to be matched
+    max_distance : float, optional
+        The threshold (in arcsec) which distances must be in for
+        sources to be considered a match.
+    """
+
     if type(cat1) == str:
         cat1 = Table.read(cat1, format='ascii.commented_header')
     if type(cat2) == str:
@@ -80,4 +102,4 @@ def match_final_catalogs(cat1, cat2, max_distance=.05):
 
     matched_cat1 = cat1[distance_mask]
     matched_cat2 = cat2[idx][distance_mask]
-    return
+    return matched_cat1, matched_cat2
