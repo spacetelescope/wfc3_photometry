@@ -454,13 +454,17 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
                     model file, cannot find focus'.format(filt))
         psf_file = get_focus_dependent_psf(psf_directory, filt)
         keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
-    elif 'PSF=' not in keyword_str and filt not in all_psf_filts:
-        if filt not in all_psf_filts:
-            raise('{} does not have a focus PSF \
-                    model file, cannot find focus'.format(filt))
+    elif 'PSF=' not in keyword_str and filt in all_psf_filts:
         psf_file = get_standard_psf(psf_directory, filt)
         keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
 
+    # Check to see if the PSF file isn't broken
+    try:
+        hdu = fits.open(psf_file)
+        hdu.close()
+    except IOError:
+        print('Could not read PSF file {}, ensure it exists \
+                and is not corrupted'.format(psf_file))
 
     if type(input_images) != str:
         try:
@@ -517,7 +521,7 @@ def get_standard_psf(path, filt):
     psf_file_matches = glob.glob(match_str)
     if len(psf_file_matches) == 0:
         print('Downloading PSF')
-        psf_filename = 'STDPSF_{}_{}.fits'.format(detector, filt)
+        psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
         psf_dest = '{}/{}'.format(path, psf_filename)
 
         url = 'http://www.stsci.edu/~jayander/STDPSFs/{}/{}'.format(
