@@ -120,6 +120,9 @@ def collate(match_arr, tbls):
     if 'F1' in tbls[0].meta['filter'] or 'F1' in tbls[0].meta['filter']:
         mags -= 2.5 * np.log10(exptimes)[None, :]
 
+    np.savetxt('mags.txt', mags)
+    np.savetxt('qs.txt', qs)
+
     print('Clipping the fit quality')
     clipped_q = sigma_clip(qs, sigma=2.5, axis=1, copy=True)
     clip_mask = clipped_q.mask
@@ -347,11 +350,13 @@ def process_peaks(peakmap, all_int_coords, input_cats,
 
     else:
         match_ints = np.where(peakmap.T>=min_detections)
-    match_ids = make_id_list(match_ints)
+    x_digits = len(str(peakmap.shape[1]))
+    y_digits = len(str(peakmap.shape[0]))
+    match_ids = make_id_list(match_ints, x_digits=x_digits, y_digits=y_digits)
 
     res = []
     for coord_block in all_int_coords:
-        tmp_input_ids = make_id_list(coord_block.T, 4, 4)
+        tmp_input_ids = make_id_list(coord_block.T, x_digits, y_digits)
         tmp_matches = get_match_indices(match_ids, tmp_input_ids)
         res.append(tmp_matches)
 
@@ -434,6 +439,8 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
             raise ValueError('Could not convert hmin to int, hmin\
             must be integer.')
 
+    upper_dict = {k.upper():v for (k,v) in kwargs.items()}
+
     keyword_str = ' '.join(['{}={}'.format(key.upper(), val) for \
                             key, val in kwargs.items()])
 
@@ -457,10 +464,12 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     elif 'PSF=' not in keyword_str and filt in all_psf_filts:
         psf_file = get_standard_psf(psf_directory, filt)
         keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
+    elif 'PSF=' in keyword_str:
+        psf_file = upper_dict['PSF']
 
     # Check to see if the PSF file isn't broken
     try:
-        hdu = fits.open(psf_file)
+        hdu = fits.open(psf_file, ignore_missing_end=True)
         hdu.close()
     except IOError:
         print('Could not read PSF file {}, ensure it exists \
