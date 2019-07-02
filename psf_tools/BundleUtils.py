@@ -106,21 +106,30 @@ class Bundle(object):
 
         # return fim.evaluate(x, y, flux, x_0, y_0)
 
-    def make_radial_profiles(self, radius=9.):
+    def make_radial_profiles(self, radius=9., s=1, alpha=.1, **kwargs):
         fwhms = []
+        if 'c' not in kwargs.keys() and 'color' not in kwargs.keys():
+            kwargs['c'] = 'b'
         for i in range(self.nimages):
             if np.all(self.sci[i] < -900.):
                 fwhms.append(np.nan)
                 continue
-            x, y = self.calculate_local_center(self.sci[i])
+            try:
+                x = self.x_0s[i]
+                y = self.y_0s[i]
+            except AttributeError:
+                x, y = self.calculate_local_center(self.sci[i])
             tmp = self.sci[i].copy()
             dq_mask = self.dq[i] != 0
             tmp[dq_mask] = np.nan
             rp = RadialProfile(x, y, data=self.sci[i], r=radius, recenter=False)
             fwhms.append(rp.fwhm)
-            plt.scatter(rp.distances, rp.values, s=1, alpha=.1, c='b')
+            plt.scatter(rp.distances, rp.values, s=s, alpha=alpha, **kwargs)
         plt.yscale('log')
         plt.ylim(10.,1E5)
+        plt.ylabel('Flux [electrons]')
+        plt.xlabel('Radius [pixels]')
+
         self.fwhms = fwhms
 
 
@@ -132,7 +141,7 @@ class Bundle(object):
             else:
                 z1, z2 = zscale.zscale(ext_data[i])
                 break
-            
+
         ncols = int(math.sqrt(self.nimages))
         nrows = int(math.ceil(float(self.nimages)/ncols))
         if ext == 'sci' or ext == 'psf':

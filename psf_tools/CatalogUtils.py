@@ -114,9 +114,18 @@ def create_coverage_map(input_images, ref_wcs):
     """
     Creates coverage map of input images in reference frame
 
-    This will soon be expanded to be used with the peak map for
-    source selection for the final averaging.  Dividing the peak map
-    by the coverage map gives the fractional detection percentage.
+    Parameters
+    ----------
+    input_images : list
+        List of image filenames, should be flt/flcs (strings).
+    ref_wcs : astropy.WCS.wcs
+        WCS object for the final reference frame.
+
+    Returns
+    -------
+    coverage_map : numpy.ndarray
+        Array with same dimensions as ref_wcs.naxis, with number
+        of images per pixel.
     """
 
     print('Computing image coverage map.')
@@ -134,7 +143,7 @@ def create_coverage_map(input_images, ref_wcs):
 
     for hw in hst_wcs_list:
         vx, vy = ref_wcs.all_world2pix(hw.calc_footprint(), 0).T - .5
-        poly_xs, poly_ys = polygon(vx, vy)
+        poly_xs, poly_ys = polygon(vx, vy, coverage_image.shape)
         coverage_image[poly_ys, poly_xs] += 1
     return coverage_image
 

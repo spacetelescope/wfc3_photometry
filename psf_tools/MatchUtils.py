@@ -103,3 +103,11 @@ def match_final_catalogs(cat1, cat2, max_distance=.05):
     matched_cat1 = cat1[distance_mask]
     matched_cat2 = cat2[idx][distance_mask]
     return matched_cat1, matched_cat2
+
+def match_to_master_catalog(master_cat, sci_cat, max_distance=.05):
+
+    if type(cat1) == str:
+        master = Table.read(master_cat, format='ascii.commented_header')
+    if type(cat2) == str:
+        sci = Table.read(sci_cat, format='ascii.commented_header')
+        
