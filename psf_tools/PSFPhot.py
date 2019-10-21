@@ -13,7 +13,8 @@ from bisect import bisect_left
 from skimage.draw import polygon
 
 from CatalogUtils import create_output_wcs, make_chip_catalogs, \
-    make_tweakreg_catfile, rd_to_refpix, get_gaia_cat, create_coverage_map
+    make_tweakreg_catfile, rd_to_refpix, get_gaia_cat, create_coverage_map, \
+    pixel_area_correction
 from MatchUtils import get_match_indices, make_id_list
 
 def align_images(input_catalogs, reference_catalog=None,
@@ -98,7 +99,9 @@ def collate(match_arr, tbls):
     ns = np.zeros(len(match_arr.T), dtype=int)
     n_images = len(tbls)
     exptimes = np.array([tbl.meta['exptime'] for tbl in tbls])
-
+    for tbl in tbls:
+        pixel_area_correction(tbl, tbl.meta['detchip'])
+    print 'Pixel Area Map correction complete'
 
     arrays = [mags, rs, ds, qs, xs, ys]
     print match_arr.shape
@@ -117,7 +120,7 @@ def collate(match_arr, tbls):
                 ys[j,i] = tbls[i]['ry'][element]
 
     mags = mags + 2.5 * np.log10(exptimes)[None, :] + 21.1
-    if 'F1' in tbls[0].meta['filter'] or 'F1' in tbls[0].meta['filter']:
+    if 'F1' in tbls[0].meta['filter'] or 'F098M' in tbls[0].meta['filter']:
         mags -= 2.5 * np.log10(exptimes)[None, :]
 
     np.savetxt('mags.txt', mags)
@@ -204,6 +207,8 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
         Final averaged photometric catalog.  See documentation of
         collate() for more information.
     """
+    # Restructure this to read in tables, get meta info, as well as
+    # HSTWCS objects to flexibly create output WCS, cov map
     outwcs = create_output_wcs(input_images)
     peakmap, all_int_coords = make_peakmap(input_images,
                                            outwcs,
@@ -220,22 +225,31 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
 
 
     input_catalogs = []
-    metas = {'filters' : [], 'exptimes' : []}
+    metas = {'filters' : [], 'exptimes' : [], 'detchips' : []}
     for f in input_images:
-        if fits.getval(f, 'INSTRUME') == 'ACS':
-            hdr = fits.getheader(f)
+        hdr = fits.getheader(f)
+        if hdr['INSTRUME'] == 'ACS':
             filt = hdr['FILTER1']
             if filt == 'CLEAR1L' or filt == 'CLEAR1S':
                 filt = hdr['FILTER2']
         else:
-            filt = fits.getval(f, 'FILTER')
+            filt = hdr['FILTER']
         cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
         im_cats = sorted(glob.glob(cat_wildcard))
-        exptime = fits.getval(f, 'EXPTIME')
+        exptime = hdr['EXPTIME']
 
         input_catalogs += im_cats
         metas['filters'] += [filt] * len(im_cats)
         metas['exptimes'] += [exptime] * len(im_cats)
+        det = hdr['DETECTOR']
+        if det != 'IR':
+            if len(im_cats) == 2:
+                det = [det+'1', det+'2']
+            elif len(im_cats) == 1: # Determine which chip for UVIS or WFC
+                det = [det + fits.getval(f, 'CCDCHIP', 1)]
+        else:
+            det = ['IR']
+        metas['detchips'] += det
 
 
     final_catalog = process_peaks(peakmap, all_int_coords,
@@ -276,13 +290,14 @@ def make_peakmap(input_images, ref_wcs, save_peakmap=True):
     all_int_coords, input_catalogs = [], []
 
     for f in input_images:
-        if fits.getval(f, 'INSTRUME') == 'ACS':
-            hdr = fits.getheader(f)
-            filt = hdr['FILTER1']
-            if filt == 'CLEAR1L' or filt == 'CLEAR1S':
-                filt = hdr['FILTER2']
-        else:
-            filt = fits.getval(f, 'FILTER')
+        # Note sure why this is in here....fix later if needed
+        # if fits.getval(f, 'INSTRUME') == 'ACS':
+        #     hdr = fits.getheader(f)
+        #     filt = hdr['FILTER1']
+        #     if filt == 'CLEAR1L' or filt == 'CLEAR1S':
+        #         filt = hdr['FILTER2']
+        # else:
+        #     filt = fits.getval(f, 'FILTER')
         cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
         input_catalogs = sorted(glob.glob(cat_wildcard))
         for cat in input_catalogs:
@@ -370,6 +385,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
         tmp_tbl = Table.read(cat, names=colnames, format='ascii.commented_header')
         tmp_tbl.meta['filter'] = metas['filters'][i]
         tmp_tbl.meta['exptime'] = metas['exptimes'][i]
+        tmp_tbl.meta['detchip'] = metas['detchips'][i]
         rx, ry = ref_wcs.all_world2pix(np.array([tmp_tbl['r'],tmp_tbl['d']]).T, 1).T
         tmp_tbl['rx'] = rx
         tmp_tbl['ry'] = ry
@@ -563,6 +579,7 @@ def check_images(input_images):
     return filter_list[0]
 
 def check_focus(input_catalogs):
+    """Read the measured focus level from the input catalogs"""
     focus_dict = {}
     for cat in input_catalogs:
         lines = open(cat).readlines()

@@ -2,8 +2,9 @@ import astropy.units as u
 import numpy as np
 
 from astropy.coordinates import SkyCoord, match_coordinates_sky
-from astropy.table import Table
+from astropy.table import Table, join
 from bisect import bisect_left
+from copy import copy
 
 def make_id_list(coord_ints, x_digits=None, y_digits=None):
     """
@@ -106,8 +107,19 @@ def match_final_catalogs(cat1, cat2, max_distance=.05):
 
 def match_to_master_catalog(master_cat, sci_cat, max_distance=.05):
 
-    if type(cat1) == str:
-        master = Table.read(master_cat, format='ascii.commented_header')
-    if type(cat2) == str:
-        sci = Table.read(sci_cat, format='ascii.commented_header')
-        
+    if type(master_cat) == str:
+        master_cat = Table.read(master_cat, format='ascii.commented_header')
+    if type(sci_cat) == str:
+        sci_cat = Table.read(sci_cat, format='ascii.commented_header')
+
+    master_skycoord = SkyCoord(master_cat['rbar']*u.deg, master_cat['dbar']*u.deg)
+    sci_skycoord = SkyCoord(sci_cat['r']*u.deg, sci_cat['d']*u.deg)
+
+    idx, ang, wat = sci_skycoord.match_to_catalog_sky(master_skycoord)
+    distance_mask = ang.arcsec  < max_distance
+    master_cat['id'] = range(len(master_cat))
+    idx[ang.arcsec>.05] = -1
+    sci_copy= copy(sci_cat)
+    sci_copy['id'] = idx
+    joined = join(master_cat, sci_copy, keys='id', join_type='left')
+    return joined
