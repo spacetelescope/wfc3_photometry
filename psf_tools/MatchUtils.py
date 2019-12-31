@@ -58,7 +58,7 @@ def get_match_indices(master_ids, input_ids):
             matched_indices.append(input_sorted_inds[ind])
         else:
             matched_indices.append(-1)
-    print 'N matched: {}'.format(len(matched_indices)-matched_indices.count(-1))
+    print('N matched: {}'.format(len(matched_indices)-matched_indices.count(-1)))
     return matched_indices
 
 def binary_search_index(a, x):

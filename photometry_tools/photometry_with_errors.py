@@ -102,7 +102,10 @@ def iraf_style_photometry(
     phot = aperture_photometry(data, phot_apertures, error=error_array)
     bg_phot = aperture_stats_tbl(data, bg_apertures, sigma_clip=True)
 
-    ap_area = phot_apertures.area()
+    if callable(phot_apertures.area):        # Handle photutils change
+        ap_area = phot_apertures.area()
+    else:
+        ap_area = phot_apertures.area
     bg_method_name = 'aperture_{}'.format(bg_method)
 
     flux = phot['aperture_sum'] - bg_phot[bg_method_name] * ap_area

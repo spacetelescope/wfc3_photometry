@@ -12,77 +12,90 @@ from astropy.units import Quantity
 from astropy.wcs import WCS
 from astroquery.gaia import Gaia
 from drizzlepac.wcs_functions import make_perfect_cd
+from scipy.stats import sigmaclip
 from skimage.draw import polygon
 from stwcs.wcsutil.hstwcs import HSTWCS
 from stwcs.distortion import utils
+
+from photometry_tools import photometry
+
+def get_apcorr(data, cat):
+    t = Table.read(cat, format='ascii.commented_header')
+    ap_t = photometry(data, coords=np.array([t['x'], t['y']]), salgorithm='median',
+                      radius=10., annulus=10., dannulus=3., origin=1., )
+    delta = t['m'] - ap_t['mag']
+    qmask = (t['q'] > 0)
+    q_perc = np.nanpercentile(t['q'][qmask], 20)
+    qmask = qmask & (t['q']<q_perc)
+    ap_mask = ap_t['mag_error'] < np.nanpercentile(ap_t['mag_error'], 15)
+    mask = qmask & ap_mask
+    clip = sigmaclip(delta[mask])[0]
+    return np.nanmedian(clip)
+
+def get_ext_wcs(image_name, sci_ext=None):
+    '''Gets WCS for image ext sci_ext'''
+
+    hdu = fits.open(image_name)
+    ext_names = [ext.name for ext in hdu]
+    n_sci = ext_names.count('SCI')
+
+    if n_sci == 1 and ext is None:
+        sci_ext = 1
+        wcs_i = WCS(hdu['SCI', sci_ext].header, hdu)
+    elif n_sci != 1 and sci_ext is None:
+        hdu.close()
+        raise ValueError('More than one sci ext detected \
+                         so sci_ext cannot be None')
+    else:
+        wcs_i = WCS(hdu['SCI', sci_ext].header, hdu)
+    hdu.close()
+    return wcs_i
 
 def make_chip_catalogs(input_catalogs):
     """Breaks up hst1pass catalogs and saves per chip catalogs."""
 
     for f in input_catalogs:
-        print f
+        print(f)
         image_root = f.split('.')[0]
         image_name = image_root + '.fits'
-        hdu = fits.open(image_name)
+
         tmp = read_one_pass_tbl(f)
-        x = tmp['x']
-        y = tmp['y']
-        m = tmp['m']
-        q = tmp['q']
-        chip = tmp['k'].data
+        chip = tmp['k'].data.astype(int)
         inds = chip == 1 # the chip 1 indices
-
-        detector = hdu[0].header['DETECTOR']
-        sub_flag = hdu[0].header['SUBARRAY']
-
-
-        ext_names = [ext.name for ext in hdu]
-        n_sci = ext_names.count('SCI')
-
-        for i in range(n_sci):
-            if i == 1: # represents sci 2, python 0 indexed
+        tmp.remove_column('k')
+        for i in set(chip):
+            if i == 2: # represents sci 2, python 0 indexed
                 inds = ~inds
-            xi = x[inds]
-            yi = y[inds] - 2048.0 * float(i) # subtract chip height
-            mi = m[inds]
-            qi = q[inds]
-            wcs_i = WCS(fits.getheader(image_name, 'sci', i+1), hdu)
-            xyi = np.array([xi,yi]).T
-            rdi = wcs_i.all_pix2world(xyi, 1)
-            xyrdi = np.vstack([xi, yi, rdi[:,0], rdi[:,1], mi, qi]).T
-            tablei = Table(xyrdi, names=['x', 'y', 'r','d','m', 'q'])
-            tablei.write(image_root + '_sci{}_xyrd.cat'.format(i+1),
-                        format='ascii.commented_header')
+            tbl = tmp[inds]
+            tbl['y'] = tmp['y'][inds] - 2048.0 * float(i-1) # subtract chip height
+            wcs_i = get_ext_wcs(image_name, i)
+            make_sky_coord_cat(tbl, image_name, i, wcs_i)
 
-        hdu.close()
 
-        # x1 = x[sci_1_inds]
-        # y1 = y[sci_1_inds]
-        # m1 = m[sci_1_inds]
-        # q1 = q[sci_1_inds]
-        # wcs_sci_1 = WCS(fits.getheader(image_name, 1), hdu)
-        # xy1 = np.array([x1,y1]).T
-        # rd1 = wcs_sci_1.all_pix2world(xy1, 1)
-        #
-        # x2 = x[~sci_1_inds]
-        # y2 = y[~sci_1_inds] - 2048
-        # m2 = m[~sci_1_inds]
-        # q2 = q[~sci_1_inds]
-        # wcs_sci_2 = WCS(fits.getheader(image_name, 4), hdu)
-        # rd2 = wcs_sci_2.all_pix2world(np.array([x2,y2]).T, 1)
-        #
-        # hdu.close()
-        #
-        # xyrd1 = np.vstack([x1, y1, rd1[:,0], rd1[:,1], m1, q1]).T
-        # xyrd2 = np.vstack([x2, y2, rd2[:,0], rd2[:,1], m2, q2]).T
-        # table1 = Table(xyrd1, names=['x', 'y', 'r','d','m', 'q'])
-        # table2 = Table(xyrd2, names=['x', 'y', 'r','d','m', 'q'])
-        # table1.write(image_root + '_sci1_xyrd.cat', format='ascii.commented_header')
-        # table2.write(image_root + '_sci2_xyrd.cat', format='ascii.commented_header')
-        # # np.savetxt(image_root + '_sci1_xyrd.cat', xyrd1)
-        # # np.savetxt(image_root + '_sci2_xyrd.cat', xyrd2)
+def make_sky_coord_cat(tbl, image_name, sci_ext=None, wcs_i=None):
+    if wcs_i is None:
 
-def make_tweakreg_catfile(input_images):
+        wcs_i = get_ext_wcs(image_name, sci_ext)
+
+    xi = tbl['x']
+    yi = tbl['y']
+    xyi = np.array([xi,yi]).T
+    rdi = wcs_i.all_pix2world(xyi, 1)
+    pos_tbl = Table([xi, yi])
+    pos_tbl['r'] = rdi[:,0]
+    pos_tbl['d'] = rdi[:,1]
+
+    pcols = pos_tbl.colnames
+    other_cols = [col for col in tbl.colnames if col not in pcols]
+
+    for col in other_cols:
+        pos_tbl[col] = tbl[col]
+
+    image_root = image_name.split('.')[0]
+    pos_tbl.write(image_root + '_sci{}_xyrd.cat'.format(sci_ext),
+                format='ascii.commented_header', overwrite=True)
+
+def make_tweakreg_catfile(input_images, update=False):
     """Makes the list of catalogs associated with each image for TweakReg"""
 
     catfile = open('tweakreg_catlist.txt', 'w')
@@ -105,10 +118,19 @@ def read_one_pass_tbl(input_catalog):
 def rd_to_refpix(cat, ref_wcs):
     """Convert sky to int pixel positions in the reference frame"""
 
-    x, y, r, d, m, q = np.loadtxt(cat, unpack=True)
+    x, y, r, d, m, q = np.loadtxt(cat, unpack=True)[:6]
     refx, refy = ref_wcs.all_world2pix(np.array([r,d]).T, 1).T -.5
     return np.array([refx, refy]).astype(int).T
 
+def update_catalogs(input_images):
+    """Recomputes image catalogs' RA/Dec vals. Useful after aligning"""
+
+    for f in input_images:
+        cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
+        cats = sorted(glob.glob(cat_wildcard))
+        for i, cat in enumerate(cats):
+            cat_tbl = Table.read(cat, format='ascii.commented_header')
+            make_sky_coord_cat(cat_tbl, f, sci_ext=i+1)
 #------------------Other utilities-------------------------------------
 
 def calculate_depths(input_images, ref_wcs, xys):
@@ -121,14 +143,15 @@ def calculate_depths(input_images, ref_wcs, xys):
                 hst_wcs_list.append(HSTWCS(hdu, ext=i))
 
 
-def create_coverage_map(input_images, ref_wcs):
+def create_coverage_map(input_wcss, ref_wcs):
     """
     Creates coverage map of input images in reference frame
 
     Parameters
     ----------
-    input_images : list
-        List of image filenames, should be flt/flcs (strings).
+    input_wcss : list
+        List of WCS's of science extensions of data.  Should
+        include distortion solutions etc.
     ref_wcs : astropy.WCS.wcs
         WCS object for the final reference frame.
 
@@ -141,24 +164,25 @@ def create_coverage_map(input_images, ref_wcs):
 
     print('Computing image coverage map.')
 
-    hst_wcs_list = []
-    for f in input_images:
-        hdu = fits.open(f)
-        for i, ext in enumerate(hdu):
-            if 'SCI' in ext.name:
-                hst_wcs_list.append(HSTWCS(hdu, ext=i))
+    # hst_wcs_list = []
+    # for f in input_images:
+    #     hdu = fits.open(f)
+    #     for i, ext in enumerate(hdu):
+    #         if 'SCI' in ext.name:
+    #             hst_wcs_list.append(HSTWCS(hdu, ext=i))
 
 
 
     coverage_image = np.zeros(ref_wcs._naxis[::-1], dtype=int)
 
-    for hw in hst_wcs_list:
-        vx, vy = ref_wcs.all_world2pix(hw.calc_footprint(), 0).T - .5
-        poly_xs, poly_ys = polygon(vx, vy, coverage_image.shape)
+    for hwcs in input_wcss:
+        vx, vy = ref_wcs.all_world2pix(hwcs.calc_footprint(), 0).T - .5
+        poly_xs, poly_ys = polygon(vx, vy, coverage_image.shape[::-1])
         coverage_image[poly_ys, poly_xs] += 1
     return coverage_image
 
 def create_output_wcs(input_images, make_coverage_map=False):
+    # No Longer needed due to storing of WCS in metadata dict
     """
     Calculates a WCS for the final reference frame
 
@@ -188,8 +212,8 @@ def create_output_wcs(input_images, make_coverage_map=False):
     output_wcs = utils.output_wcs(hst_wcs_list, undistort=True)
     output_wcs.wcs.cd = make_perfect_cd(output_wcs)
 
-    print 'The output WCS is the following: '
-    print output_wcs
+    print('The output WCS is the following: ')
+    print(output_wcs)
     return output_wcs
 
 def get_gaia_cat(input_images, cat_name='gaia'):
@@ -204,7 +228,7 @@ def get_gaia_cat(input_images, cat_name='gaia'):
 
 
     print('Calculating coordinate ranges for Gaia query:')
-    footprint_list = map(get_footprints, input_images)
+    footprint_list = list(map(get_footprints, input_images))
 
 
     merged = []
@@ -230,7 +254,8 @@ def get_gaia_cat(input_images, cat_name='gaia'):
 
 
     cat = r['ra', 'dec']
-    cat.write('{}.cat'.format(cat_name), format='ascii.commented_header')
+    cat.write('{}.cat'.format(cat_name), format='ascii.commented_header',
+                              overwrite=True)
     return '{}.cat'.format(cat_name)
 
 
@@ -251,6 +276,8 @@ def get_footprints(im):
 
 def pixel_area_correction(catalog, detchip):
     # Set degree for various PAM polynomials
+    # TODO: Implement ACS Pixel Area Correction
+    # Requires WCS of image
     degrees = {'ir':2, 'uvis1':3, 'uvis2':3,
                'wfc1':3, 'wfc2':3}
 
@@ -268,11 +295,7 @@ def pixel_area_correction(catalog, detchip):
                            -1.01400681e-16]
 
     coeffs = coeff_dict[detchip.lower()]
-    pam_func = models.Polynomial2D(degree=degrees[detchip].lower())
-    # if detchip.lower() == 'ir':
-    #     coeffs = [9.53791038e-01, -3.68634734e-07, -3.14690506e-10,
-    #               8.27064384e-05, 1.48205135e-09, 2.12429722e-10]
-    #     pam_func = models.Polynomial2D(degree=2)
+    pam_func = models.Polynomial2D(degree=degrees[detchip.lower()])
 
     pam_func.parameters = coeffs
 

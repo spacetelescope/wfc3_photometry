@@ -10,14 +10,19 @@ from astropy.stats import sigma_clip
 from astropy.table import Table
 from astropy.wcs import WCS
 from bisect import bisect_left
+from drizzlepac import astrodrizzle, tweakreg
+from drizzlepac.wcs_functions import make_perfect_cd
 from skimage.draw import polygon
+from stwcs.distortion import utils
+from stwcs.wcsutil.hstwcs import HSTWCS
 
-from CatalogUtils import create_output_wcs, make_chip_catalogs, \
+
+from .CatalogUtils import create_output_wcs, make_chip_catalogs, \
     make_tweakreg_catfile, rd_to_refpix, get_gaia_cat, create_coverage_map, \
-    pixel_area_correction
-from MatchUtils import get_match_indices, make_id_list
+    pixel_area_correction, update_catalogs, get_apcorr
+from .MatchUtils import get_match_indices, make_id_list
 
-def align_images(input_catalogs, reference_catalog=None,
+def align_images(input_images, reference_catalog=None,
                  searchrad=None, gaia=False, **kwargs):
     """
     Run TweakReg on the images, using the catalogs from hst1pass.
@@ -30,8 +35,8 @@ def align_images(input_catalogs, reference_catalog=None,
 
     Parameters
     ----------
-    input_catalogs : list
-        List of catalog filenames from hst1pass (strings).
+    input_images : list
+        List of image filenames to align using xyrd catalogs (strings).
     reference_catalog : str, optional
         File name of the reference catalog.  If None images are aligned
         to first image in input_images.
@@ -49,9 +54,7 @@ def align_images(input_catalogs, reference_catalog=None,
         https://drizzlepac.readthedocs.io/en/latest/tweakreg.html
     """
 
-    from drizzlepac import tweakreg
-    input_images = [os.path.splitext(cat)[0] + '.fits' \
-                    for cat in input_catalogs]
+
 
     make_tweakreg_catfile(input_images)
     if gaia:
@@ -65,7 +68,7 @@ def align_images(input_catalogs, reference_catalog=None,
                       reusename=True, clean=True, **kwargs)
 
     print('Updating Catalogs with new RA/Dec')
-    make_chip_catalogs(input_catalogs)
+    update_catalogs(input_images)
 
 def collate(match_arr, tbls):
     """
@@ -99,12 +102,14 @@ def collate(match_arr, tbls):
     ns = np.zeros(len(match_arr.T), dtype=int)
     n_images = len(tbls)
     exptimes = np.array([tbl.meta['exptime'] for tbl in tbls])
+    apcorrs = np.array([tbl.meta['apcorr'] for tbl in tbls])
+    photflam = tbls[0].meta['photflam']
     for tbl in tbls:
         pixel_area_correction(tbl, tbl.meta['detchip'])
-    print 'Pixel Area Map correction complete'
+    print('Pixel Area Map correction complete')
 
     arrays = [mags, rs, ds, qs, xs, ys]
-    print match_arr.shape
+    print(match_arr.shape)
 
     for j, row in enumerate(match_arr.T):
         for i, element in enumerate(row):
@@ -119,10 +124,11 @@ def collate(match_arr, tbls):
                 xs[j,i] = tbls[i]['rx'][element]
                 ys[j,i] = tbls[i]['ry'][element]
 
-    mags = mags + 2.5 * np.log10(exptimes)[None, :] + 21.1
+    mags += 2.5 * np.log10(exptimes)[None, :] - 21.1 - 2.5*np.log10(photflam)
     if 'F1' in tbls[0].meta['filter'] or 'F098M' in tbls[0].meta['filter']:
         mags -= 2.5 * np.log10(exptimes)[None, :]
-
+    mags -= apcorrs[None, :]
+    print('Median aperture_correction {}'.format(np.nanmedian(apcorrs)))
     np.savetxt('mags.txt', mags)
     np.savetxt('qs.txt', qs)
 
@@ -149,9 +155,10 @@ def collate(match_arr, tbls):
     # Find the offsetof each image from the mean mag for each star
     offsets = mags - mbar[:,None]
     meds = np.nanmedian(offsets[mag_mask], axis = 0)
+    # print(meds)
 
     #Subtract the median
-    mags = mags - meds[None, :]
+    mags -= meds[None, :]
 
     final_tbl = Table()
     final_tbl['mbar'] = np.nanmean(mags, axis=1)
@@ -171,7 +178,8 @@ def collate(match_arr, tbls):
     return final_tbl
 
 
-def make_final_table(input_images, save_peakmap=True, min_detections=3):
+def make_final_table(input_images, save_peakmap=True, min_detections=3,
+                     drizzle=False):
     """
     Wrapper for final photometric matching and averaging.
 
@@ -200,6 +208,10 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
         If float: minimum fraction of images a source must be detected
         in to be included in the final catalog.
         Default is 3.
+    drizzle : bool, optional
+        Make a drizzled image on the same grid as the reference frame?
+        Default False.  The image output from this is not optimized so
+        it should only be treated as a simple preview.
 
     Returns
     -------
@@ -209,23 +221,10 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
     """
     # Restructure this to read in tables, get meta info, as well as
     # HSTWCS objects to flexibly create output WCS, cov map
-    outwcs = create_output_wcs(input_images)
-    peakmap, all_int_coords = make_peakmap(input_images,
-                                           outwcs,
-                                           save_peakmap=save_peakmap)
-
-
-    cov_map = create_coverage_map(input_images, outwcs)
-
-
-    pri_hdu = fits.PrimaryHDU()
-    im_hdu = fits.hdu.ImageHDU(data=cov_map, header=outwcs.to_header())
-    hdul = fits.HDUList([pri_hdu, im_hdu])
-    hdul.writeto('python_coverage_map.fits', overwrite=True)
-
 
     input_catalogs = []
-    metas = {'filters' : [], 'exptimes' : [], 'detchips' : []}
+    metas = {'filters' : [], 'exptimes' : [], 'detchips' : [],
+             'wcss' : [], 'apcorrs' : [], 'photflams' : []}
     for f in input_images:
         hdr = fits.getheader(f)
         if hdr['INSTRUME'] == 'ACS':
@@ -237,19 +236,48 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
         cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
         im_cats = sorted(glob.glob(cat_wildcard))
         exptime = hdr['EXPTIME']
+        photflam = hdr['PHOTFLAM']
 
         input_catalogs += im_cats
         metas['filters'] += [filt] * len(im_cats)
         metas['exptimes'] += [exptime] * len(im_cats)
+        metas['photflams'] += [photflam] * len(im_cats)
+        for i, cat in enumerate(im_cats):
+            im_data = fits.getdata(f, 'sci', i+1)
+            metas['apcorrs'].append(get_apcorr(im_data, cat))
+
         det = hdr['DETECTOR']
+        det0 = det
         if det != 'IR':
+            # Determine which chip for UVIS or WFC (needed for subarray)
+            det = [det + str(fits.getval(f, 'CCDCHIP', 1))]
+            wcslist = [HSTWCS(f, ext=('sci', 1))]
             if len(im_cats) == 2:
-                det = [det+'1', det+'2']
-            elif len(im_cats) == 1: # Determine which chip for UVIS or WFC
-                det = [det + fits.getval(f, 'CCDCHIP', 1)]
+                det += [det0 + str(fits.getval(f, 'CCDCHIP', ('sci', 2)))]
+                wcslist += [HSTWCS(f, ext=('sci', 2))]
         else:
-            det = ['IR']
+            wcslist = [HSTWCS(f, ext=('sci', 1))]
         metas['detchips'] += det
+        metas['wcss'] += wcslist
+
+
+    outwcs = utils.output_wcs(metas['wcss'], undistort=True)
+    outwcs.wcs.cd = make_perfect_cd(outwcs)
+
+    peakmap, all_int_coords = make_peakmap(input_images,
+                                           outwcs,
+                                           save_peakmap=save_peakmap)
+
+
+    cov_map = create_coverage_map(metas['wcss'], outwcs)
+
+
+    pri_hdu = fits.PrimaryHDU()
+    im_hdu = fits.hdu.ImageHDU(data=cov_map, header=outwcs.to_header())
+    hdul = fits.HDUList([pri_hdu, im_hdu])
+    hdul.writeto('python_coverage_map.fits', overwrite=True)
+
+
 
 
     final_catalog = process_peaks(peakmap, all_int_coords,
@@ -258,7 +286,14 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3):
                                   min_detections=min_detections)
 
     final_catalog.write('{}_final_cat.txt'.format(filt),
-                        format='ascii.commented_header')
+                        format='ascii.commented_header',
+                        overwrite=True)
+
+
+    if drizzle:
+        simple_drizzle(input_images, cov_map,
+                       'python_coverage_map.fits', filt)
+
     return final_catalog
 
 def make_peakmap(input_images, ref_wcs, save_peakmap=True):
@@ -382,10 +417,12 @@ def process_peaks(peakmap, all_int_coords, input_cats,
     colnames = ['x', 'y', 'r', 'd', 'm', 'q']
     for i, cat in enumerate(input_cats):
 #         print cat
-        tmp_tbl = Table.read(cat, names=colnames, format='ascii.commented_header')
+        tmp_tbl = Table.read(cat, format='ascii.commented_header')
         tmp_tbl.meta['filter'] = metas['filters'][i]
         tmp_tbl.meta['exptime'] = metas['exptimes'][i]
         tmp_tbl.meta['detchip'] = metas['detchips'][i]
+        tmp_tbl.meta['apcorr'] = metas['apcorrs'][i]
+        tmp_tbl.meta['photflam'] = metas['photflams'][i]
         rx, ry = ref_wcs.all_world2pix(np.array([tmp_tbl['r'],tmp_tbl['d']]).T, 1).T
         tmp_tbl['rx'] = rx
         tmp_tbl['ry'] = ry
@@ -395,6 +432,32 @@ def process_peaks(peakmap, all_int_coords, input_cats,
     final_tbl = collate(res, tbls)
     final_tbl['n_expected'] = coverage_map.T[match_ints]
     return final_tbl
+
+def simple_drizzle(images, coverage_map, wcs_file, filt):
+    """Naively drizzle the images onto the final wcs grid"""
+
+    # This calculates how many of the input images cover each
+    # pixel of the output image grid.  Used to determine best
+    # median algorithm for drizzle
+    median_coverage = np.median(coverage_map[coverage_map>0])
+    out_name = '{}_final'.format(filt)
+    if median_coverage>4:
+        med_alg = 'median'
+        combine_nhigh = 1
+    else:
+        med_alg = 'minmed'
+        combine_nhigh = 0
+
+    # Due to bug in astrodrizzle, this can't yet be optimized
+    # to use the mdriztab
+
+    astrodrizzle.AstroDrizzle(images, clean=True, build=True,
+                              context=False, preserve=False,
+                              combine_type=med_alg,
+                              combine_nhigh=combine_nhigh,
+                              in_memory=False, final_wcs=True,
+                              final_refimage=wcs_file,
+                              output=out_name)
 
 
 def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
@@ -445,8 +508,9 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
 
     if not executable_path:
         executable_path = '.'
-    if not executable_path.endswith('hst1pass.e'):
+    if os.path.isdir(executable_path):
         executable_path = os.path.join(executable_path, 'hst1pass.e')
+    file_dir = os.path.split(executable_path)[0]
 
     if type(hmin) != int:
         try:
@@ -457,8 +521,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
 
     upper_dict = {k.upper():v for (k,v) in kwargs.items()}
 
-    keyword_str = ' '.join(['{}={}'.format(key.upper(), val) for \
-                            key, val in kwargs.items()])
+
 
     all_psf_filts = ['F105W', 'F110W', 'F125W', 'F127M', 'F139M',
                     'F140W', 'F160W', 'F225W', 'F275W', 'F336W',
@@ -469,27 +532,33 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
 
     filt = check_images(input_images)
 
+    if 'GDC' not in upper_dict.keys() or upper_dict['GDC'].upper() == 'NONE':
+        upper_dict['GDC']='NONE' # Set to NONE or capitalize to NONE
+    elif upper_dict['GDC'].upper() == 'AUTO':
+        gdc = get_standard_gdc(file_dir, filt)
+        upper_dict['GDC'] = gdc
+        validate_file(upper_dict['GDC'])
+    else:
+        validate_file(upper_dict['GDC'])
 
-    psf_directory = os.path.split(executable_path)[0]
+    keyword_str = ' '.join(['{}={}'.format(key, val) for \
+                            key, val in upper_dict.items()])
+
+
     if 'FOCUS' in keyword_str and 'PSF=' not in keyword_str:
         if filt not in focus_filts:
             raise('{} does not have a focus dependent PSF \
                     model file, cannot find focus'.format(filt))
-        psf_file = get_focus_dependent_psf(psf_directory, filt)
+        psf_file = get_focus_dependent_psf(file_dir, filt)
         keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
     elif 'PSF=' not in keyword_str and filt in all_psf_filts:
-        psf_file = get_standard_psf(psf_directory, filt)
+        psf_file = get_standard_psf(file_dir, filt)
         keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
     elif 'PSF=' in keyword_str:
         psf_file = upper_dict['PSF']
 
     # Check to see if the PSF file isn't broken
-    try:
-        hdu = fits.open(psf_file, ignore_missing_end=True)
-        hdu.close()
-    except IOError:
-        print('Could not read PSF file {}, ensure it exists \
-                and is not corrupted'.format(psf_file))
+    validate_file(psf_file)
 
     if type(input_images) != str:
         try:
@@ -500,64 +569,98 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
 
 
 
+
     expected_outputs = input_images.replace('.fits', '.{}'.format(out))
     expected_output_list = expected_outputs.split()
 
     cmd = '{} HMIN={} FMIN={} PMAX={} OUT={} {} {}'.format(
            executable_path, hmin, fmin, pmax, out,
            keyword_str, input_images)
-    print cmd
+    print(cmd)
     run_and_print_output(cmd)
     make_chip_catalogs(expected_output_list)
     return expected_output_list
 
-def get_focus_dependent_psf(path, filter):
+def get_standard_gdc(path, filt):
+    """Checks if GDC file exists and if not downloads from WFC3 page
+
+    NOTE:  The GDC file is likely not necessary in most cases.  These
+    files should only be downloaded when deemed explicitly necessary
+    """
+
+    if 'F1' in filt:
+        detector = 'WFC3IR'
+        gdc_filename = 'STDGDC_WFC3IR.fits'
+    else:
+        # must do [:5] to handle LP filters
+        detector = 'WFC3UV'
+        gdc_filename = 'STDGDC_WFC3UV_{}.fits'.format(filt[:5])
+
+    gdc_path = '{}/{}'.format(path, gdc_filename)
+
+    if not os.path.exists(gdc_path):
+        print('Downloading GDC File.  Size ~= 300MB, this may take a while.')
+        url = 'http://www.stsci.edu/~jayander/STDGDCs/{}/{}'.format(
+            detector, gdc_filename)
+        urllib.urlretrieve(url, gdc_path)
+        print('Saving GDC file to {}'.format(gdc_path))
+
+    print('Using GDC file {}'.format(gdc_path))
+    return gdc_path
+
+def get_focus_dependent_psf(path, filt):
     """Checks if PSF file exists and if not downloads from WFC3 page"""
-    match_str = '{}/STDPBF_WFC3UV_{}.fits'.format(path, filter)
-    psf_file_matches = glob.glob(match_str)
-    if len(psf_file_matches) == 0:
+    filt = filt[:5]
+    psf_path = '{}/STDPBF_WFC3UV_{}.fits'.format(path, filt)
+
+    if not os.path.exists(psf_path):
         print('Downloading PSF')
-        if filter == 'F606W':
-            psf_filename = 'STDPBF_WFC3UV_{}_FIX.fits'.format(filter)
-            psf_dest = '{}/{}'.format(path, psf_filename.replace(
-                '_FIX', ''))
+        if filt == 'F606W':
+            psf_filename = 'STDPBF_WFC3UV_{}_FIX.fits'.format(filt)
         else:
-            psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filter)
-            psf_dest = '{}/{}'.format(path, psf_filename)
+            psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filt)
 
         url = 'http://www.stsci.edu/~jayander/STDPBFs/WFC3UV/{}'.format(
             psf_filename)
-        urllib.urlretrieve(url, psf_dest)
-        print('Saving PSF file to {}'.format(psf_dest))
-    else:
-        psf_dest = psf_file_matches[0]
+        urllib.urlretrieve(url, psf_path)
+        print('Saving PSF file to {}'.format(psf_path))
 
-    print('Using PSF file {}'.format(psf_dest))
-    return psf_dest
+
+    print('Using PSF file {}'.format(psf_path))
+    return psf_path
 
 def get_standard_psf(path, filt):
     """Checks if PSF file exists and if not downloads from WFC3 page"""
+    filt = filt[:5]
     if 'F1' in filt:
         detector = 'WFC3IR'
     else:
         detector = 'WFC3UV'
-    match_str = '{}/PSFSTD_{}_{}.fits'.format(path, detector, filt)
+    psf_path = '{}/PSFSTD_{}_{}.fits'.format(path, detector, filt)
 
-    psf_file_matches = glob.glob(match_str)
-    if len(psf_file_matches) == 0:
+
+    if not os.path.exists(psf_path):
         print('Downloading PSF')
         psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
-        psf_dest = '{}/{}'.format(path, psf_filename)
 
         url = 'http://www.stsci.edu/~jayander/STDPSFs/{}/{}'.format(
             detector, psf_filename)
-        urllib.urlretrieve(url, psf_dest)
-        print('Saving PSF file to {}'.format(psf_dest))
-    else:
-        psf_dest = psf_file_matches[0]
+        urllib.urlretrieve(url, psf_path)
+        print('Saving PSF file to {}'.format(psf_path))
 
-    print('Using PSF file {}'.format(psf_dest))
-    return psf_dest
+    print('Using PSF file {}'.format(psf_path))
+    return psf_path
+
+def validate_file(input_file):
+    try:
+        hdu = fits.open(input_file, ignore_missing_end=True)
+        hdu.close()
+    except IOError:
+        raise IOError('Could not read input file {}, ensure it exists \
+                and is not corrupted'.format(input_file))
+    except Exception as e:
+        raise Exception(e)
+
 
 def check_images(input_images):
     """Checks images to make sure they are wfc3 and one filter"""
@@ -597,6 +700,6 @@ def run_and_print_output(command):
         if output == '' and process.poll() is not None:
             break
         if output:
-            print output.strip()
+            print(output.strip())
     rc = process.poll()
     return rc
