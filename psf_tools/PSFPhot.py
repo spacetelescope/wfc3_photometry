@@ -37,6 +37,7 @@ def align_images(input_images, reference_catalog=None,
     ----------
     input_images : list
         List of image filenames to align using xyrd catalogs (strings).
+        Must be fits files.
     reference_catalog : str, optional
         File name of the reference catalog.  If None images are aligned
         to first image in input_images.
@@ -199,7 +200,7 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3,
     Parameters
     ----------
     input_images : list
-        List of image filenames (strings).
+        List of image filenames (strings).  Must be fits files.
     save_peakmap : bool, optional
         Flag to save the map of detections (peakmap).  Default True
     min_detections : int or float, optional
@@ -307,7 +308,7 @@ def make_peakmap(input_images, ref_wcs, save_peakmap=True):
     Parameters
     ----------
     input_images : list
-        List of image filenames (strings).
+        List of image filenames (strings).  Must be fits files.
     ref_wcs : astropy.wcs.WCS
         WCS object to of the reference frame convert sky to pixel
         positions, and get the dimensions of the final reference frame
@@ -434,7 +435,35 @@ def process_peaks(peakmap, all_int_coords, input_cats,
     return final_tbl
 
 def simple_drizzle(images, coverage_map, wcs_file, filt):
-    """Naively drizzle the images onto the final wcs grid"""
+    """
+    Naively drizzle the images onto the final wcs grid
+
+    Uses astrodrizzle to combine input images into single stacked
+    image.  Uses the coverage map created in create_coverage_map to
+    determine the "median depth" of the image (how many images per
+    output image pixel)- useful for choosing best algorithm for
+    median combine.  Output image is on same pixel grid as the
+    image specified by wcs_file parameter.  The coverage map filename
+    is the typical input.  This image is not an optimized drizzled
+    image, and is meant to give a basic stack.  The drizzled image
+    is stored as <FILT>_dr[cz].fits (drc or drz based on input
+    images).
+
+    Parameters
+    ----------
+    images : list
+        List of image filenames to drizzle.  Must be fits files.
+    coverage_map : numpy.ndarray
+        File created via create_coverage_map, i.e. total number of
+        input images per output pixel
+    wcs_file : string
+        File to read WCS from to get the output grid of the drizzled
+        image.  Use the filename of the coverage map for simplicity.
+    filt : string
+        The filter the images were taken with.  Used for naming
+        output image
+
+    """
 
     # This calculates how many of the input images cover each
     # pixel of the output image grid.  Used to determine best
@@ -477,7 +506,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     Parameters
     ----------
     input_images : list
-        List of image filenames (strings).
+        List of image filenames (strings).  Must be fits files.
     hmin : int
         Minimum separation between stars. Default 5
     fmin : int, optional
@@ -582,10 +611,28 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     return expected_output_list
 
 def get_standard_gdc(path, filt):
-    """Checks if GDC file exists and if not downloads from WFC3 page
+    """
+    Checks if GDC file exists and if not downloads from WFC3 page
 
     NOTE:  The GDC file is likely not necessary in most cases.  These
-    files should only be downloaded when deemed explicitly necessary
+    files should only be downloaded when deemed explicitly necessary.
+    This is only the case if the you want other outputs from hst1pass
+    such as pixel area correction/sky coordinate computation etc.  In
+    general, this is unnecessary as python functions already handle
+    those things.  Furthermore the GDC files are quite large (~300MB),
+    so downloading them slows things down.
+
+    Parameters
+    ----------
+    path : str
+        Path where to to look for/store GDC files.
+    filt : str
+        Filter for which to get the GDC file.
+
+    Returns
+    -------
+    gdc_path : str
+        Path GDC file was downloaded to/found at.
     """
 
     if 'F1' in filt:
@@ -609,7 +656,22 @@ def get_standard_gdc(path, filt):
     return gdc_path
 
 def get_focus_dependent_psf(path, filt):
-    """Checks if PSF file exists and if not downloads from WFC3 page"""
+    """
+    Checks if PSF file exists and if not downloads from WFC3 page.
+
+    Parameters
+    ----------
+    path : str
+        Path where to to look for/store PSF files.
+    filt : str
+        Filter which to get the focus dependent PSF for.
+
+    Returns
+    -------
+    psf_path : str
+        Path focus dependent PSF file was downloaded to/found at.
+    """
+
     filt = filt[:5]
     psf_path = '{}/STDPBF_WFC3UV_{}.fits'.format(path, filt)
 
@@ -630,7 +692,21 @@ def get_focus_dependent_psf(path, filt):
     return psf_path
 
 def get_standard_psf(path, filt):
-    """Checks if PSF file exists and if not downloads from WFC3 page"""
+    """
+    Checks if PSF file exists and if not downloads from WFC3 page.
+
+    Parameters
+    ----------
+    path : str
+        Path where to to look for/store PSF files.
+    filt : str
+        Filter which to get the PSF for.
+
+    Returns
+    -------
+    psf_path : str
+        Path PSF file was downloaded to/found at.
+    """
     filt = filt[:5]
     if 'F1' in filt:
         detector = 'WFC3IR'
@@ -652,6 +728,17 @@ def get_standard_psf(path, filt):
     return psf_path
 
 def validate_file(input_file):
+    """
+    Makes sure input_file is a valid fits file.
+
+    Tries to open the image to ensure the fits file is readable.
+    Good for ensuring the download didn't fail/download garbage
+
+    Parameters
+    ----------
+    input_file : string
+        Filename of fits file to validate
+    """
     try:
         hdu = fits.open(input_file, ignore_missing_end=True)
         hdu.close()
@@ -663,7 +750,25 @@ def validate_file(input_file):
 
 
 def check_images(input_images):
-    """Checks images to make sure they are wfc3 and one filter"""
+    """
+    Checks images to make sure they are wfc3 and one filter.
+
+    Software currently only has full support for WFC3.  Furthermore,
+    only a single filter should be passed into most of the functions,
+    as the measurements are filter specific.  This function raises an
+    exception if those conditions are not met.
+
+    Parameters
+    ----------
+    input_images : list
+        List of image filenames (strings).  Must be fits files.
+
+    Returns
+    -------
+    filter : str
+        Filter name.
+
+    """
 
     filter_list = []
     for im in input_images:
@@ -682,7 +787,23 @@ def check_images(input_images):
     return filter_list[0]
 
 def check_focus(input_catalogs):
-    """Read the measured focus level from the input catalogs"""
+    """
+    Read the measured focus level from the input catalogs
+
+    If hst1pass was run using focus based PSFs, the focus level for
+    each image is stored in the catalog output from hst1pass (the
+    .xympqks file).
+
+    Parameters
+    ----------
+    input_catalogs : list
+        List of catalog filenames (strings).
+
+    Returns
+    -------
+    focus_dict : dict
+        Dictionary where dict[input_catalog] = focus level.
+    """
     focus_dict = {}
     for cat in input_catalogs:
         lines = open(cat).readlines()

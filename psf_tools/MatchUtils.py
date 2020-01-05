@@ -12,7 +12,8 @@ def make_id_list(coord_ints, x_digits=None, y_digits=None):
 
     Each ID is just the X and Y integer pixel postions concatenated.
     For example, (3894, 215) becomes 38940215.  These IDs are then
-    used in the matching process.
+    used in the matching process.  This will likely be rewritten or
+    removed soon in favor of better matching methods.
 
     Parameters
     ----------
@@ -46,7 +47,28 @@ def make_id_list(coord_ints, x_digits=None, y_digits=None):
 
 
 def get_match_indices(master_ids, input_ids):
-    """Matches ID from master list with input ids from input catalog"""
+    """
+    Matches ID from master list with input ids from input catalog
+
+    Does search for each master_id in input_ids, and returns index
+    of matched element in input_ids.  This whole matching system
+    will likely be rewritten soon to use better/smarter matching
+    methods, like table joins/clustering computations.
+
+    Parameters
+    ----------
+    master_ids : list
+        List of master_ids to search for within input_ids
+    input_ids : list
+        The list of ids to be searched
+
+    Returns
+    -------
+    matched_indices : list
+        List of indices for each master_id found in input_ids, in
+        the same order as master_ids.  If no match was found, the
+        value for that master_id in matched_indices is -1.
+    """
 
     matched_indices = []
     input_sorted_inds = np.argsort(input_ids)
@@ -78,6 +100,8 @@ def match_final_catalogs(cat1, cat2, max_distance=.05):
     space) of in cat2 for every point in cat1.  Points closer than
     max_distance are considered to be the same source. The
     returned tables only contain the sources that were matched.
+    Basically just inner joins the tables when matching rows are
+    found.
 
     Parameters
     ----------
@@ -88,6 +112,13 @@ def match_final_catalogs(cat1, cat2, max_distance=.05):
     max_distance : float, optional
         The threshold (in arcsec) which distances must be in for
         sources to be considered a match.
+
+    Returns
+    -------
+    matched_cat1 : astropy.table.Table
+        The matched version of cat1
+    matched_cat2 : astropy.table.Table
+        The matched version of cat2
     """
 
     if type(cat1) == str:
@@ -106,13 +137,42 @@ def match_final_catalogs(cat1, cat2, max_distance=.05):
     return matched_cat1, matched_cat2
 
 def match_to_master_catalog(master_cat, sci_cat, max_distance=.05):
+    """
+    Matches a single image extension catalog to the master catalog
+    so that each row of the returned catalog is the same star
+
+    This function takes in one final catalog and one catalog of a
+    single science extension (sci_cat) and matches sources in them.
+    This is done by finding closest point in master_cat (in sky space)
+    to each point in sci_cat.  Points closer than max_distance are
+    considered to be the same source. The returned table contains the
+    same number of rows as master_cat, and has values for each of the
+    stars successfully matched. Basically just left joins the tables
+    when matching rows are found.
+
+    Parameters
+    ----------
+    master_cat : astropy.table.Table or str
+        The master table (or filename) to be matched to
+    sci_cat : astropy.table.Table or str
+        The single science extension table (or filename) to be matched
+    max_distance : float, optional
+        The threshold (in arcsec) which distances must be in for
+        sources to be considered a match.
+
+    Returns
+    -------
+    joined : astropy.table.Table
+        The matched (left-joined) table.
+    """
 
     if type(master_cat) == str:
         master_cat = Table.read(master_cat, format='ascii.commented_header')
     if type(sci_cat) == str:
         sci_cat = Table.read(sci_cat, format='ascii.commented_header')
 
-    master_skycoord = SkyCoord(master_cat['rbar']*u.deg, master_cat['dbar']*u.deg)
+    master_skycoord = SkyCoord(master_cat['rbar']*u.deg,
+                               master_cat['dbar']*u.deg)
     sci_skycoord = SkyCoord(sci_cat['r']*u.deg, sci_cat['d']*u.deg)
 
     idx, ang, wat = sci_skycoord.match_to_catalog_sky(master_skycoord)

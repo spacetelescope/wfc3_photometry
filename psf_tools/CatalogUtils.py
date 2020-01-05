@@ -20,6 +20,30 @@ from stwcs.distortion import utils
 from photometry_tools import photometry
 
 def get_apcorr(data, cat):
+    """
+    Takes data array and matching PSF phot catalog and computes
+    aperture correction.
+
+    The PSF magnitudes are not measurements of all the light in the
+    full extent of the psf, but roughly the innermost 5 pixels.
+    This function performs 10 pixel aperture photometry and computes
+    a clipped median offset between the aperture magnitudes and the
+    PSF magnitudes to get a correction to the calibrated 10 pixel
+    aperture, while maintaining the precision of PSF measurements.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Array containing image data (SCI extension)
+    cat : str
+        Filename of psf catalog for the image data. Necessary for
+        getting positions of stars to measure,
+
+    Returns
+    -------
+    ap_corr : float
+        Aperture correction from PSF mag to 10 pixel aperture mag.
+    """
     t = Table.read(cat, format='ascii.commented_header')
     ap_t = photometry(data, coords=np.array([t['x'], t['y']]), salgorithm='median',
                       radius=10., annulus=10., dannulus=3., origin=1., )
@@ -33,7 +57,16 @@ def get_apcorr(data, cat):
     return np.nanmedian(clip)
 
 def get_ext_wcs(image_name, sci_ext=None):
-    '''Gets WCS for image ext sci_ext'''
+    """
+    Gets WCS for image extension sci_ext
+
+    Parameters
+    ----------
+    image_name : str
+        Name of the image from which to get the WCS.
+    sci_ext : int
+        Which science extension to pull WCS from (either 1 or 2)
+    """
 
     hdu = fits.open(image_name)
     ext_names = [ext.name for ext in hdu]
@@ -44,22 +77,38 @@ def get_ext_wcs(image_name, sci_ext=None):
         wcs_i = WCS(hdu['SCI', sci_ext].header, hdu)
     elif n_sci != 1 and sci_ext is None:
         hdu.close()
+
         raise ValueError('More than one sci ext detected \
-                         so sci_ext cannot be None')
+                         so sci_ext cannot be None, must be \
+                         directly specified in call to get_ext_wcs')
     else:
         wcs_i = WCS(hdu['SCI', sci_ext].header, hdu)
     hdu.close()
     return wcs_i
 
 def make_chip_catalogs(input_catalogs):
-    """Breaks up hst1pass catalogs and saves per chip catalogs."""
+    """
+    Breaks up hst1pass catalogs and saves per chip catalogs.
 
-    for f in input_catalogs:
-        print(f)
-        image_root = f.split('.')[0]
+    hst1pass outputs catalogs where the measurements from both chips
+    are merged together.  This splits that catalog into 1 catalog for
+    each chip, and resets the y coordinate for chip one (in merged
+    catalog, chip 1 starts at y=2048, in separate catalogs it starts
+    back at 0).  Also computes/adds RA/Dec columns into catalogs
+
+    Parameters
+    ----------
+    input_catalogs : list
+        List of catalogs output from hst1pass.  Typically should be
+        the image filename, with '.fits' replaced with '.xympqks'.
+    """
+
+    for cat_name in input_catalogs:
+        print(cat_name)
+        image_root = cat_name.split('.')[0]
         image_name = image_root + '.fits'
 
-        tmp = read_one_pass_tbl(f)
+        tmp = read_one_pass_tbl(cat_name)
         chip = tmp['k'].data.astype(int)
         inds = chip == 1 # the chip 1 indices
         tmp.remove_column('k')
@@ -72,7 +121,33 @@ def make_chip_catalogs(input_catalogs):
             make_sky_coord_cat(tbl, image_name, i, wcs_i)
 
 
-def make_sky_coord_cat(tbl, image_name, sci_ext=None, wcs_i=None):
+def make_sky_coord_cat(tbl, image_name, sci_ext, wcs_i=None):
+    """
+    Adds RA/Dec column into table containing x/y columns via WCS.
+
+    Inputs a table <tbl> with x/y values, reads a WCS from image
+    <image_name> and transforms the x/y values to RA/DEC values via
+    the wcs <wcs_i>.  If wcs_i not given, uses <image_name> and
+    <sci_ext> to read in the WCS.  Saves the output table as
+    <image_rootname>_fl[ct]_sci<sci_ext>_xyrd.cat.
+
+    Parameters
+    ----------
+    tbl : astropy.table.Table
+        Table containing x and y columns to be transformed
+    image_name : str
+        Image from which to get the WCS. Should be image that
+        tbl was derived from.
+    sci_ext : int
+        Science extension from which to get the WCS/name the output.
+        For UVIS this is either 1 or 2, for IR it is always 1.
+    wcs_i : astropy.wcs.WCS or subclass, optional
+        WCS object to use for transformation.  If None, the WCS is
+        read in from the image_name and sci_ext given.
+
+
+    """
+
     if wcs_i is None:
 
         wcs_i = get_ext_wcs(image_name, sci_ext)
@@ -96,7 +171,13 @@ def make_sky_coord_cat(tbl, image_name, sci_ext=None, wcs_i=None):
                 format='ascii.commented_header', overwrite=True)
 
 def make_tweakreg_catfile(input_images, update=False):
-    """Makes the list of catalogs associated with each image for TweakReg"""
+    """
+    Makes the list of catalogs associated with each image for TweakReg
+
+    Makes file containing the appropriate entries for TweakReg to use
+    the PSF photometry catalog files.  See the TweakReg docs section
+    regarding the 'catfile' parameter for further information.
+    """
 
     catfile = open('tweakreg_catlist.txt', 'w')
     for f in input_images:
@@ -107,7 +188,20 @@ def make_tweakreg_catfile(input_images, update=False):
     catfile.close()
 
 def read_one_pass_tbl(input_catalog):
-    """Reads the hst1pass files into astropy table."""
+    """
+    Reads the hst1pass file into astropy table.
+
+    Parameters
+    ----------
+    input_catalog : str
+        Catalog output from hst1pass (.xympqks file)
+
+    Returns
+    -------
+    tbl : astropy.table.Table
+        Table containing the columns with appropriate names from
+        hst1pass catalog.
+    """
 
     penultimate_line = open(input_catalog).readlines()[-2]
     cols = penultimate_line.strip('#').replace('.', '').split()
@@ -123,25 +217,27 @@ def rd_to_refpix(cat, ref_wcs):
     return np.array([refx, refy]).astype(int).T
 
 def update_catalogs(input_images):
-    """Recomputes image catalogs' RA/Dec vals. Useful after aligning"""
+    """
+    Recomputes image catalogs' RA/Dec vals. Useful after aligning.
 
-    for f in input_images:
-        cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
+    Aligning images changes the WCS, so the transformation from
+    x/y to RA/Dec must be recomputed.  This is a helper function
+    to do that for multiple images and the corresponding catalogs.
+
+    Parameters
+    ----------
+    input_images : list
+        List of image filenames (strings).  Must be fits files.
+    """
+
+    for im in input_images:
+        cat_wildcard = im.replace('.fits', '_sci?_xyrd.cat')
         cats = sorted(glob.glob(cat_wildcard))
         for i, cat in enumerate(cats):
             cat_tbl = Table.read(cat, format='ascii.commented_header')
-            make_sky_coord_cat(cat_tbl, f, sci_ext=i+1)
+            make_sky_coord_cat(cat_tbl, im, sci_ext=i+1)
+
 #------------------Other utilities-------------------------------------
-
-def calculate_depths(input_images, ref_wcs, xys):
-
-    hst_wcs_list = []
-    for f in input_images:
-        hdu = fits.open(f)
-        for i, ext in enumerate(hdu):
-            if 'SCI' in ext.name:
-                hst_wcs_list.append(HSTWCS(hdu, ext=i))
-
 
 def create_coverage_map(input_wcss, ref_wcs):
     """
@@ -152,26 +248,17 @@ def create_coverage_map(input_wcss, ref_wcs):
     input_wcss : list
         List of WCS's of science extensions of data.  Should
         include distortion solutions etc.
-    ref_wcs : astropy.WCS.wcs
+    ref_wcs : astropy.wcs.WCS
         WCS object for the final reference frame.
 
     Returns
     -------
     coverage_map : numpy.ndarray
-        Array with same dimensions as ref_wcs.naxis, with number
+        Array with same dimensions as ref_wcs._naxis, with number
         of images per pixel.
     """
 
     print('Computing image coverage map.')
-
-    # hst_wcs_list = []
-    # for f in input_images:
-    #     hdu = fits.open(f)
-    #     for i, ext in enumerate(hdu):
-    #         if 'SCI' in ext.name:
-    #             hst_wcs_list.append(HSTWCS(hdu, ext=i))
-
-
 
     coverage_image = np.zeros(ref_wcs._naxis[::-1], dtype=int)
 
@@ -218,12 +305,24 @@ def create_output_wcs(input_images, make_coverage_map=False):
 
 def get_gaia_cat(input_images, cat_name='gaia'):
     """
-    Get the Gaia catalog for the area of input images.
+    Get the Gaia catalog for the area covered by input images.
 
     This function queries Gaia for a table of sources. It determines
     the dimensions to use for the query by finding the sky positions
     of the corners of each of the images.
 
+    Parameters
+    ----------
+    input_images : list
+        List of image filenames (strings).  Must be fits files.
+    cat_name : str, optional
+        What to store saved catalog as, automatically appends '.cat'.
+        Default = 'gaia'
+
+    Returns
+    -------
+    cat_filename: str
+        The name of the saved gaia catalog.
     """
 
 
@@ -254,28 +353,70 @@ def get_gaia_cat(input_images, cat_name='gaia'):
 
 
     cat = r['ra', 'dec']
-    cat.write('{}.cat'.format(cat_name), format='ascii.commented_header',
+    cat_filename = '{}.cat'.format(cat_name)
+    cat.write(cat_filename, format='ascii.commented_header',
                               overwrite=True)
-    return '{}.cat'.format(cat_name)
+    return cat_filename
 
 
 
-def get_footprints(im):
-    """Get footprints of images while handling images with >1 chip"""
-    fps = []
-    hdu = fits.open(im)
-    flt_flag = 'flt.fits' in im or 'flc.fits' in im
+def get_footprints(image):
+    """
+    Get footprints of images while handling images with >1 chip
+
+    Calculates sky footprint of images using the WCS's in the image.
+    If the image has multiple sci extensions (and therefore multiple
+    WCS's), the footprints of all extensions are calculated.
+
+    Parameters
+    ----------
+    image : str
+        Filename of fits image for which to calculate sky footprint(s)
+
+    Returns
+    -------
+    footprints : list
+        List of footprints for each science extension of image.  Each
+        footprint is a list of the RA/Dec coordinates of the 4 corners
+        of a single science extension.
+    """
+
+    footprints = []
+    hdu = fits.open(image)
+    flt_flag = 'flt.fits' in image or 'flc.fits' in image
     for ext in hdu:
         if 'SCI' in ext.name:
             hdr = ext.header
             wcs = WCS(hdr, hdu)
-            fp = wcs.calc_footprint(hdr, undistort=flt_flag)
-            fps.append(fp)
-    return fps
+            footprint = wcs.calc_footprint(hdr, undistort=flt_flag)
+            footprints.append(footprint)
+    return footprints
 
 
-def pixel_area_correction(catalog, detchip):
-    # Set degree for various PAM polynomials
+def pixel_area_correction(catalog, detchip, mag_colname):
+    """
+    Performs pixel area correction on magnitude measurements in catalog.
+
+    The PSF magnitudes are measured in the image frame, which does not
+    account for the pixel area.  This function stores the pixel area map
+    as a set of 2D polynomials, and evaluates the values of those
+    polynomials at each x,y in the catalogs.  Finally it applies those
+    evaluated values to the magnitude measurements in the catalog.
+
+    Note: Since the table is passed by reference, the corrected column
+    does not need to be returned to updated the catalog (it's updated
+    in place).
+
+    Parameters
+    ----------
+    catalog : astropy.table.Table
+        Table containing x, y and magnitude measurements
+    detchip : str
+        Detector/chip string.  I.E chip 1 of wfc3/uvis is 'uvis1'.  If
+        detector only has 1 chip, then no number should be added (i.e just
+        'ir' for wfc3/ir).
+
+    """
     # TODO: Implement ACS Pixel Area Correction
     # Requires WCS of image
     degrees = {'ir':2, 'uvis1':3, 'uvis2':3,
