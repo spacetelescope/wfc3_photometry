@@ -1,31 +1,7 @@
 # wfc3_photometry
 
-Welcome to the WFC3 Photometric tools repository.  This repository will be used as the home base for all the tools we develop to unify/optimize our photometry data analysis.  For now, the goal of this project is to create a unified pipeline that encompasses the work done by several team members, to minimize the amount of repeated efforts/errors in processes.  Specifically we want to develop a comprehensive pipeline for analyzing the photometric standard star images, but the tools in this repository will probably work for other data.
+Welcome to the WFC3 Photometric tools repository. In this repository there are two sets of tools.  The `photometry_tools` directory contains typical utility functions for doing aperture photometry and also creating radial profiles of sources.  The `psf_tools` directory contains a module that provides an interface for performing PSF photometry on WFC3 images using the effective PSF models developed by Jay Anderson- described in Anderson & King (2000, PASP) and WFC3 ISR 2016-12.  This fitting derives fluxes and positions typically down to the 0.01 mag and 0.01 pixel level, which is currently not achievable with other software.  The user has the choice of which of the two fitting engines to work with- a Fortran program written by J Anderson  which is called via a python wrapper, or a fully Python engine.  The fortran engine has more features, and is much faster, though documentation is sparse compared to the python engine.  The outputs from either are virtually equivalent.
 
-The pipeline will be run via the use of config files.  The config files will be stored with the outputs,
+After the PSFs are fit, there are then tools available to align the images using the psf catalogs, and collate/average the catalogs into a final, fully calibrated catalog.  A _Jupyter Notebook_ is available in this top level directory for full instruction on the usage of `psf_tools`, and is recommended reading for those interested in using the tools.
 
-### Rough skeleton of pipeline:
-- [x] Query MAST Database for all observations of target(s)
-    - [ ] Check calibration version?
-- [ ] Download all observations not in data directories (~~Via Astroquery or QL?~~ Via MAST API)
-- [ ] Filter bad datasets
-- [x] Visit level drizzle all images (code exists already)
-- [ ] Detect source in each drizzled image?
-    - [ ] Use WCS tools to transform coordinates to find them in FLT/FLC frame
-    - [ ] Validate detections?
-- [ ] Run LACosmic on relevant exposures, save output images in a parallel tree.
-- [ ] Run the photometry, use several different apertures, bg methods etc.
-    - [x] Implement sigma-clipped median/mode bg measurement for photutils
-    - [x] Implement full error computation (DAOPHOT style errors)
-- [ ] Save results to csv's?  hdf5?  Some format that will be easy for anyone to access
-- [ ] Make some preliminary plots from these results.
-
-
-### Ideas:
-* Base the flow of the software on the contam pipeline?
-* Write as little new code as possible, use packages that are well developed and maintained
-* Document the pipelines well so others can work on the project without a huge learning curve
-
-### Other To-do's:
-- [ ] Make modules out of components of pipeline
-- [ ] Write a top-level wrapper (pipeline) that runs with plaintext/json? config file
+This software is still in beta, and will have slight improvements/optimizations done in the comming months, but should not have any changes with regards to inputs and outputs.  At the very least, the module will be upgraded into a full package, with a steup.py, and placed onto PyPI for easier installation.  However, the tools are fully functional as of now, and the outputs are extremely high fidelity catalogs. 
