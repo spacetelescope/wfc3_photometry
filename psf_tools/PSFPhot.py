@@ -1,8 +1,10 @@
 import glob
-import matplotlib.pyplot as  plt
+import inspect
 import numpy as np
 import os
+import shutil
 import subprocess
+import sys
 import urllib
 
 from astropy.io import fits
@@ -21,6 +23,7 @@ from .CatalogUtils import create_output_wcs, make_chip_catalogs, \
     make_tweakreg_catfile, rd_to_refpix, get_gaia_cat, create_coverage_map, \
     pixel_area_correction, update_catalogs, get_apcorr
 from .MatchUtils import get_match_indices, make_id_list
+
 
 def align_images(input_images, reference_catalog=None,
                  searchrad=None, gaia=False, **kwargs):
@@ -244,7 +247,7 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3,
         metas['exptimes'] += [exptime] * len(im_cats)
         metas['photflams'] += [photflam] * len(im_cats)
         for i, cat in enumerate(im_cats):
-            im_data = fits.getdata(f, 'sci', i+1)
+            im_data = fits.getdata(f, ('sci', i+1))
             metas['apcorrs'].append(get_apcorr(im_data, cat))
 
         det = hdr['DETECTOR']
@@ -519,15 +522,15 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     out : str, optional
         The measurments to be recorded in the output catalogs.  Each
         character corresponds to one output column.  The default is
-        'xympqk' which gives: x coordinate, y coordinate, instrumental
+        'xympqks' which gives: x coordinate, y coordinate, instrumental
         magnitude, peak pixel value, quality of fit (0 is perfect
-        fit), and the chip the star was detected on (chip 1 or chip 2
-        for UVIS).  If being used with other functions in this package
-        x, y, m, q and k must be included in the outputs.  More
-        measurements will be supported at a later date.
+        fit), the chip the star was detected on (chip 1 or chip 2
+        for UVIS), and the sky value.  If being used with other functions
+        in this package x, y, m, q, k, and s must be included in the
+        outputs.  More measurements will be supported at a later date.
     executable_path : str, optional
-        The path to the hst1pass.e compiled executable.  If not given,
-        the code is assumed to be in the current working directory.
+        The path to the hst1pass.e compiled executable.  If None (default),
+        the code is assumed to be in the psf_tools directory.
 
     Returns
     -------
@@ -536,9 +539,10 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     """
 
     if not executable_path:
-        executable_path = '.'
+        executable_path = _get_exec_path()
     if os.path.isdir(executable_path):
-        executable_path = os.path.join(executable_path, 'hst1pass.e')
+        exec_name = _get_exec_name()
+        executable_path = os.path.join(executable_path, exec_name)
     file_dir = os.path.split(executable_path)[0]
 
     if type(hmin) != int:
@@ -568,6 +572,9 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
         upper_dict['GDC'] = gdc
         validate_file(upper_dict['GDC'])
     else:
+        gdc = upper_dict['GDC']
+        shutil.copy(gdc, '.')
+        upper_dict['GDC'] = os.path.split(gdc)[-1]
         validate_file(upper_dict['GDC'])
 
     keyword_str = ' '.join(['{}={}'.format(key, val) for \
@@ -649,11 +656,16 @@ def get_standard_gdc(path, filt):
         print('Downloading GDC File.  Size ~= 300MB, this may take a while.')
         url = 'http://www.stsci.edu/~jayander/STDGDCs/{}/{}'.format(
             detector, gdc_filename)
-        urllib.urlretrieve(url, gdc_path)
+        urllib.request.urlretrieve(url, gdc_path)
         print('Saving GDC file to {}'.format(gdc_path))
 
-    print('Using GDC file {}'.format(gdc_path))
-    return gdc_path
+
+    if not os.path.exists(gdc_filename):
+        print('Copying GDC file to current directory')
+        shutil.copy(gdc_path, '.')
+
+    print('Using GDC file {}'.format(gdc_filename))
+    return gdc_filename
 
 def get_focus_dependent_psf(path, filt):
     """
@@ -673,23 +685,23 @@ def get_focus_dependent_psf(path, filt):
     """
 
     filt = filt[:5]
-    psf_path = '{}/STDPBF_WFC3UV_{}.fits'.format(path, filt)
+    psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filt)
+    psf_path = '{}/{}'.format(path, psf_filename)
 
     if not os.path.exists(psf_path):
         print('Downloading PSF')
-        if filt == 'F606W':
-            psf_filename = 'STDPBF_WFC3UV_{}_FIX.fits'.format(filt)
-        else:
-            psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filt)
+        psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filt)
 
         url = 'http://www.stsci.edu/~jayander/STDPBFs/WFC3UV/{}'.format(
             psf_filename)
-        urllib.urlretrieve(url, psf_path)
+        urllib.request.urlretrieve(url, psf_path)
         print('Saving PSF file to {}'.format(psf_path))
 
-
-    print('Using PSF file {}'.format(psf_path))
-    return psf_path
+    if not os.path.exists(psf_filename):
+        print('Copying PSF file to current directory')
+        shutil.copy(psf_path, '.')
+    print('Using PSF file {}'.format(psf_filename))
+    return psf_filename
 
 def get_standard_psf(path, filt):
     """
@@ -712,20 +724,24 @@ def get_standard_psf(path, filt):
         detector = 'WFC3IR'
     else:
         detector = 'WFC3UV'
-    psf_path = '{}/PSFSTD_{}_{}.fits'.format(path, detector, filt)
+    psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
+    psf_path = '{}/{}'.format(path, psf_filename)
 
 
     if not os.path.exists(psf_path):
         print('Downloading PSF')
-        psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
+
 
         url = 'http://www.stsci.edu/~jayander/STDPSFs/{}/{}'.format(
             detector, psf_filename)
-        urllib.urlretrieve(url, psf_path)
+        urllib.request.urlretrieve(url, psf_path)
         print('Saving PSF file to {}'.format(psf_path))
 
-    print('Using PSF file {}'.format(psf_path))
-    return psf_path
+    if not os.path.exists(psf_filename):
+        print('Copying PSF file to current directory')
+        shutil.copy(psf_path, '.')
+    print('Using PSF file {}'.format(psf_filename))
+    return psf_filename
 
 def validate_file(input_file):
     """
@@ -814,11 +830,30 @@ def check_focus(input_catalogs):
         focus_dict[cat] = float(focus)
     return focus_dict
 
+
+def _get_exec_name():
+    """Checks the current OS to select correct executable"""
+    platform = sys.platform
+    if platform == 'darwin':
+        exec_name = 'hst1pass_darwin.e'
+    elif platform.lower().startswith('linux'):
+        exec_name = 'hst1pass_linux.e'
+    else:
+        raise OSError('Exectuable not compiled for this OS, only for \
+                        Mac OSX and linux.  Use run_python_psf_fitting()')
+    return exec_name
+
+def _get_exec_path():
+    exec_name = _get_exec_name()
+    direc = os.path.dirname(os.path.realpath(__file__))
+    return os.path.join(direc, exec_name)
+
 def run_and_print_output(command):
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, shell=True,
+                               close_fds=True)
     while True:
         output = process.stdout.readline()
-        if output == '' and process.poll() is not None:
+        if len(output) == 0 and process.poll() is not None:
             break
         if output:
             print(output.strip())

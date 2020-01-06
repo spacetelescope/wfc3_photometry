@@ -48,13 +48,19 @@ def get_apcorr(data, cat):
     ap_t = photometry(data, coords=np.array([t['x'], t['y']]), salgorithm='median',
                       radius=10., annulus=10., dannulus=3., origin=1., )
     delta = t['m'] - ap_t['mag']
-    qmask = (t['q'] > 0)
-    q_perc = np.nanpercentile(t['q'][qmask], 20)
-    qmask = qmask & (t['q']<q_perc)
-    ap_mask = ap_t['mag_error'] < np.nanpercentile(ap_t['mag_error'], 15)
+    # print(np.nanmedian(delta))
+    nonzero_q = (t['q'] > 0)
+    q_perc = np.nanpercentile(t['q'][nonzero_q], 20)
+    qmask = nonzero_q & (t['q']<q_perc)
+    ap_merr_perc = np.nanpercentile(ap_t['mag_error'][nonzero_q], 15)
+    ap_mask = ap_t['mag_error'] < ap_merr_perc
     mask = qmask & ap_mask
-    clip = sigmaclip(delta[mask])[0]
-    return np.nanmedian(clip)
+    clip = delta[mask]
+    ap_corr = np.nanmedian(clip, )
+    n = len(clip)
+    print('Computed aperture correction of {}\
+           using {} stars for {}'.format(ap_corr, n, cat))
+    return ap_corr
 
 def get_ext_wcs(image_name, sci_ext=None):
     """
@@ -393,7 +399,7 @@ def get_footprints(image):
     return footprints
 
 
-def pixel_area_correction(catalog, detchip, mag_colname):
+def pixel_area_correction(catalog, detchip, mag_colname='m'):
     """
     Performs pixel area correction on magnitude measurements in catalog.
 
@@ -415,7 +421,9 @@ def pixel_area_correction(catalog, detchip, mag_colname):
         Detector/chip string.  I.E chip 1 of wfc3/uvis is 'uvis1'.  If
         detector only has 1 chip, then no number should be added (i.e just
         'ir' for wfc3/ir).
-
+    mag_colname : str
+        Name of the column containing the magnitudes to be corrected.
+        Default is 'm'.
     """
     # TODO: Implement ACS Pixel Area Correction
     # Requires WCS of image

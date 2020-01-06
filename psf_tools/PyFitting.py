@@ -174,7 +174,7 @@ def _conv_origin(data, origin):
 def _filter_images(data, hmin):
     """Performs filtering/convolution on images for source finding"""
     #Laziest way to get a circle mask
-    fp = CircularAperture((0,0), r=hmin).to_mask()[0].data>.1
+    fp = CircularAperture((0,0), r=hmin).to_mask().data>.1
     fp = fp.astype(bool)
 
     # Apply maximum filter, flux filter
@@ -329,7 +329,7 @@ def fit_star(xi, yi, bg_est, model, im_data):
     im_data : `numpy.ndarray`
         The full image (single chip) data array from which the object should
         be cut out.
-        
+
     Returns
     -------
     f : float
@@ -384,7 +384,7 @@ def do_stars(xs, ys, skies, mod, data):
     m = -2.5 * np.log10(ffit)
 
     tbl = Table([xfit, yfit, list(m), qfit, skies, cxs],
-                names=['x', 'y', 'm', 'q', 'sky', 'cx'])
+                names=['x', 'y', 'm', 'q', 's', 'cx'])
     return tbl
 
 def do_stars_mp(xs, ys, skies, mod, data, ncpu):
@@ -406,9 +406,9 @@ def do_stars_mp(xs, ys, skies, mod, data, ncpu):
 
     result = np.array(result)
     tbl = Table(result, names=['m', 'x', 'y', 'q', 'cx'])
-    tbl['sky'] = skies
+    tbl['s'] = skies
     tbl['m'] = -2.5 * np.log10(tbl['m'])
-    tbl = tbl['x', 'y', 'm', 'q', 'sky', 'cx']
+    tbl = tbl['x', 'y', 'm', 'q', 's', 'cx']
     return tbl
 
 #---------------------------SUBTRACTION--------------------------------
