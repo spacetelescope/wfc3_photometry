@@ -433,25 +433,34 @@ def compute_cutout(x, y, flux, mod, shape):
     cutout = mod.evaluate(x_grid, y_grid, flux, x-1., y-1.)
     return cutout, x_grid, y_grid
 
+def get_subtrahend(xs, ys, fluxes, mod, shape):
+    """Make the image to be subtracted"""
+
+    # Initialize the array to be subtracted
+    subtrahend = np.zeros(shape, dtype=float)
+
+    for x, y, flux in zip(xs, ys, fluxes):
+        if flux == np.nan: # Skip ones without good fluxes
+            continue
+        cutout, x_grid, y_grid = compute_cutout(x, y, flux, mod, shape)
+
+        # Important: use += to account for overlapping cutouts
+        subtrahend[y_grid, x_grid] += cutout
+
+    return subtrahend
+
 def subtract_psfs(data, cat, mod):
     """Subtracts the fitted PSF from the positions in catalog"""
 
-    # Initialize the array to be subtracted
-    subtrahend = np.zeros(data.shape, dtype=float)
-    dimensions = data.shape
+    shape = data.shape
 
-    fluxes = np.power(10, cat['m']/-2.5) # Convert from mags to fluxes
+    fluxes = np.power(10, cat['m']/-2.5).data # Convert from mags to fluxes
+    xs = cat['x'].data
+    ys = cat['y'].data
 
     # Evaluate the PSF at each x, y, flux, and place it in subtrhend
-    for i, row in enumerate(cat):
-        flux = fluxes[i]
-        if flux == np.nan:
-            continue
-        cutout, x_grid, y_grid = compute_cutout(row['x'], row['y'],
-                                                   flux, mod,
-                                                   dimensions)
-        # Important: use += to account for overlapping cutouts
-        subtrahend[y_grid, x_grid] += cutout
+    subtrahend = get_subtrahend(xs, ys, fluxes, mod, shape)
+
 
     # Subtact the image!
     difference = data - subtrahend

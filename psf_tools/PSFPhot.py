@@ -493,7 +493,7 @@ def simple_drizzle(images, coverage_map, wcs_file, filt):
 
 
 def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
-                 out='xympqk', executable_path=None, **kwargs):
+                 out='xympqks', executable_path=None, **kwargs):
     """
     Run hst1pass.e Fortran code on images to produce initial catalogs.
 

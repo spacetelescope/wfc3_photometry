@@ -425,6 +425,16 @@ def pixel_area_correction(catalog, detchip, mag_colname='m'):
         Name of the column containing the magnitudes to be corrected.
         Default is 'm'.
     """
+
+    pam_func = get_pam_func(detchip)
+
+    intx = np.array(catalog['x']).astype(int) - 1
+    inty = np.array(catalog['y']).astype(int) - 1
+    corrections = -2.5 * np.log10(pam_func(intx, inty))
+
+    catalog['m'] += corrections
+
+def get_pam_func(detchip):
     # TODO: Implement ACS Pixel Area Correction
     # Requires WCS of image
     degrees = {'ir':2, 'uvis1':3, 'uvis2':3,
@@ -447,9 +457,4 @@ def pixel_area_correction(catalog, detchip, mag_colname='m'):
     pam_func = models.Polynomial2D(degree=degrees[detchip.lower()])
 
     pam_func.parameters = coeffs
-
-    intx = np.array(catalog['x']).astype(int) - 1
-    inty = np.array(catalog['y']).astype(int) - 1
-    corrections = -2.5 * np.log10(pam_func(intx, inty))
-
-    catalog['m'] += corrections
+    return pam_func
