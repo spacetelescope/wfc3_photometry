@@ -7,7 +7,6 @@ from multiprocessing import cpu_count, Pool
 from time import perf_counter
 
 from astropy.io import fits
-from astropy.nddata import NDData
 from astropy.table import Table
 from photutils.aperture import CircularAnnulus, CircularAperture
 from photutils.psf import FittableImageModel
@@ -15,9 +14,12 @@ from photutils.psf.models import GriddedPSFModel
 from scipy.ndimage import convolve, maximum_filter
 from scipy.optimize import curve_fit
 
+from astropy.modeling import Fittable2DModel, Parameter
+
 from photometry_tools import aperture_stats_tbl
 from .CatalogUtils import make_sky_coord_cat
 from .PSFPhot import check_images, get_standard_psf, validate_file
+from .PSFUtils import SlowGriddedFocusPSFModel, make_models
 
 def run_python_psf_fitting(input_images, psf_model_file=None, hmin=5, fmin=1E3,
                            pmax=7E4, qmax=.5, cmin=-1., cmax=.1,
@@ -88,6 +90,7 @@ def run_python_psf_fitting(input_images, psf_model_file=None, hmin=5, fmin=1E3,
             tbl['x'] += 1.
             tbl['y'] += 1.
             make_sky_coord_cat(tbl, im, sci_ext=ext)
+            break
 
 def measure_stars(data, mod, hmin=5, fmin=1E3, pmax=7E4,
                   qmax=.5, cmin=-1., cmax=.1, ncpu=None):
@@ -155,13 +158,14 @@ def measure_stars(data, mod, hmin=5, fmin=1E3, pmax=7E4,
     skies = skies[mask]
 
     # Measure the remaining candidates
-    tbl = do_stars_mp(xs, ys, skies, mod, data, ncpu)
-    # Last rejection pass
-    final_good_mask = (tbl['q']<qmax) & (tbl['cx']<cmax) & (tbl['cx']>cmin)
-    tbl = tbl[final_good_mask]
-    rej = np.sum(~final_good_mask)
-    print('Rejected {} more sources after qmax and excess clip'.format(rej))
-    return tbl
+    for i in range(10):
+        tbl = do_stars_mp(xs, ys, skies, mod, data, ncpu)
+        # Last rejection pass
+        final_good_mask = (tbl['q']<qmax) & (tbl['cx']<cmax) & (tbl['cx']>cmin)
+        output_tbl = tbl[final_good_mask]
+        rej = np.sum(~final_good_mask)
+        print('Rejected {} more sources after qmax and excess clip'.format(rej))
+    return output_tbl
 #---------------------------DETECTION--------------------------------
 
 def _conv_origin(data, origin):
@@ -218,65 +222,6 @@ def reject_sources(xs, ys, data, max_4sum, skies, max_peak_val):
 
 #-----------------------------FITTING------------------------------
 
-def make_models(psf_file):
-    """
-    Reads in PSF model, splits it for multichip data, and makes model objects.
-
-    This function takes a fits file containing a spatially dependent PSF
-    (single PSF models at each point in a grid across the detector) and reads
-    them into GriddedPSFModel objects that can be used for fitting.  Since the
-    PSF model files contain models for both chips (in the case of UVIS) put
-    together, this file splits them into the appropriate sections for each
-    chip.
-
-    Parameters
-    ----------
-    psf_file : str
-        Name of fits file containing the PSFs
-
-    Returns
-    -------
-    mod1 : `photutils.psf.models.GriddedPSFModel`
-        The gridded PSF model object for the 'SCI, 1' data.
-    mod1 : `photutils.psf.models.GriddedPSFModel` or None
-        The gridded PSF model object for the 'SCI, 2' data.
-        If there is no 'SCI, 2' for that detector (i.e. WFC3/IR), then is None.
-    """
-    # Probably only need to add support for subarray into this part.
-    hdu = fits.open(psf_file)
-    psf_data = hdu[0].data
-    hdr = hdu[0].header
-
-    xlocs = [hdr['IPSFX'+str(i).zfill(2)] for i in range(1,11)]
-    xlocs = np.array([xloc for xloc in xlocs if xloc != 9999]) -1
-
-    ylocs = [hdr['JPSFY'+str(i).zfill(2)] for i in range(1,11)]
-    ylocs = np.array([yloc for yloc in ylocs if yloc != 9999]) -1
-
-    if len(ylocs > 4):   # 2 chips
-        ylocs1 = ylocs[:4]
-        ylocs2 = ylocs[4:]-2048
-
-        g_xypos1 = [p[::-1] for p in product(ylocs1, xlocs)]
-        g_xypos2 = [p[::-1] for p in product(ylocs2, xlocs)]
-
-        ndd1 = NDData(data=psf_data[:28],
-                      meta={'grid_xypos':g_xypos1, 'oversampling':4})
-        mod1 = GriddedPSFModel(ndd1)
-
-        ndd2 = NDData(data=psf_data[28:],
-                      meta={'grid_xypos':g_xypos2, 'oversampling':4})
-        mod2 = GriddedPSFModel(ndd2)
-
-        return(mod1, mod2)
-
-    else:
-        # IR Case
-        g_xypos = [p[::-1] for p in product(ylocs, xlocs)]
-        ndd1 = NDData(data=psf_data,
-                      meta={'grid_xypos':g_xypos, 'oversampling':4})
-        mod1 = GriddedPSFModel(ndd1)
-        return(mod1, None)
 
 
 def estimate_all_backgrounds(xs, ys, r_in, r_out, data, stat='aperture_mode'):
@@ -285,7 +230,7 @@ def estimate_all_backgrounds(xs, ys, r_in, r_out, data, stat='aperture_mode'):
 
     See photometry_tools.aperture_stats_tbl for more details.
     """
-    ans = CircularAnnulus(positions=(xs, ys), r_in=r_in, r_out=r_out)
+    ans = CircularAnnulus(positions=zip(xs, ys), r_in=r_in, r_out=r_out)
     bg_ests = aperture_stats_tbl(apertures=ans, data=data, sigma_clip=True)
     return np.array(bg_ests[stat])
 
@@ -352,6 +297,7 @@ def fit_star(xi, yi, bg_est, model, im_data):
     f_guess = np.sum(cutout-bg_est)
 
     p0 = [f_guess, xi+.5, yi+.5]
+    bounds = ([-np.inf, -np.inf, -np.inf], [np.inf, np.inf, np.inf])
     try:
         popt, pcov = curve_fit(model.evaluate, (xf,yf),
                                np.ravel(cutout)-bg_est, p0=p0,
@@ -360,32 +306,32 @@ def fit_star(xi, yi, bg_est, model, im_data):
         resid = cutout - bg_est - model.evaluate((xf,yf), *popt).reshape(5,5)
         q = np.sum(np.abs(resid))/popt[0]
         cx = resid[2,2]/popt[0]
-    except RuntimeError:
-        popt = [np.nan, np.nan, np.nan]
+    except (RuntimeError, ValueError):
+        popt = [np.nan, np.nan, np.nan, np.nan]
         q = np.nan
         cx = np.nan
     f, x, y = popt
     return f, x, y, q, cx
 
 
-def do_stars(xs, ys, skies, mod, data):
-    # mod_func = set_mod(mod)
-    flat_model = FlattenedModel(mod)
-    xfit, yfit, ffit, qfit, cxs = [], [], [], [], []
-    for x,y,sky in zip(xs, ys, skies):
-        ff, xf, yf, qf, cxf = fit_star(float(x), float(y), sky,
-                              flat_model, data)
-        ffit.append(ff)
-        xfit.append(xf)
-        yfit.append(yf)
-        qfit.append(qf)
-        cxs.append(cxf)
-    ffit = np.array(ffit)
-    m = -2.5 * np.log10(ffit)
-
-    tbl = Table([xfit, yfit, list(m), qfit, skies, cxs],
-                names=['x', 'y', 'm', 'q', 's', 'cx'])
-    return tbl
+# def do_stars(xs, ys, skies, mod, data):
+#     # mod_func = set_mod(mod)
+#     flat_model = FlattenedModel(mod)
+#     xfit, yfit, ffit, qfit, cxs = [], [], [], [], []
+#     for x,y,sky in zip(xs, ys, skies):
+#         ff, xf, yf, qf, cxf = fit_star(float(x), float(y), sky,
+#                               flat_model, data)
+#         ffit.append(ff)
+#         xfit.append(xf)
+#         yfit.append(yf)
+#         qfit.append(qf)
+#         cxs.append(cxf)
+#     ffit = np.array(ffit)
+#     m = -2.5 * np.log10(ffit)
+#
+#     tbl = Table([xfit, yfit, list(m), qfit, skies, cxs],
+#                 names=['x', 'y', 'm', 'q', 's', 'cx'])
+#     return tbl
 
 def do_stars_mp(xs, ys, skies, mod, data, ncpu):
 
@@ -410,58 +356,3 @@ def do_stars_mp(xs, ys, skies, mod, data, ncpu):
     tbl['m'] = -2.5 * np.log10(tbl['m'])
     tbl = tbl['x', 'y', 'm', 'q', 's', 'cx']
     return tbl
-
-#---------------------------SUBTRACTION--------------------------------
-
-def compute_cutout(x, y, flux, mod, shape):
-    """Gets cutout of evaluated model, and indices to place cutout"""
-
-    # Get integer pixel positions of centers, with appropriate
-    # edge convention, i.e. edges of pixels are integers, 0 indexed
-    x_cen = int(x-.5)
-    y_cen = int(y-.5)
-
-    # Handle cases where model spills over edge of data array
-    x1 = max(0, x_cen - 10)
-    y1 = max(0, y_cen - 10)
-
-    # upper bound is exclusive, so add 1 more
-    x2 = min(x_cen + 11, shape[1])
-    y2 = min(y_cen + 11, shape[0])
-
-    y_grid, x_grid = np.mgrid[y1:y2, x1:x2]
-    cutout = mod.evaluate(x_grid, y_grid, flux, x-1., y-1.)
-    return cutout, x_grid, y_grid
-
-def get_subtrahend(xs, ys, fluxes, mod, shape):
-    """Make the image to be subtracted"""
-
-    # Initialize the array to be subtracted
-    subtrahend = np.zeros(shape, dtype=float)
-
-    for x, y, flux in zip(xs, ys, fluxes):
-        if flux == np.nan: # Skip ones without good fluxes
-            continue
-        cutout, x_grid, y_grid = compute_cutout(x, y, flux, mod, shape)
-
-        # Important: use += to account for overlapping cutouts
-        subtrahend[y_grid, x_grid] += cutout
-
-    return subtrahend
-
-def subtract_psfs(data, cat, mod):
-    """Subtracts the fitted PSF from the positions in catalog"""
-
-    shape = data.shape
-
-    fluxes = np.power(10, cat['m']/-2.5).data # Convert from mags to fluxes
-    xs = cat['x'].data
-    ys = cat['y'].data
-
-    # Evaluate the PSF at each x, y, flux, and place it in subtrhend
-    subtrahend = get_subtrahend(xs, ys, fluxes, mod, shape)
-
-
-    # Subtact the image!
-    difference = data - subtrahend
-    return difference
