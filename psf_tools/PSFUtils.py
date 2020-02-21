@@ -103,7 +103,7 @@ def make_model_star_image(drz, input_images=None, models_only=True,
         complete_image = insert_in_exposure(im, input_skycoords, mods)
         output_files.append(complete_image)
 
-    dumb_drizzle(drz. output_files)
+    dumb_drizzle(drz, output_files)
     return output_files
 
 
