@@ -158,13 +158,14 @@ def measure_stars(data, mod, hmin=5, fmin=1E3, pmax=7E4,
     skies = skies[mask]
 
     # Measure the remaining candidates
-    for i in range(10):
-        tbl = do_stars_mp(xs, ys, skies, mod, data, ncpu)
-        # Last rejection pass
-        final_good_mask = (tbl['q']<qmax) & (tbl['cx']<cmax) & (tbl['cx']>cmin)
-        output_tbl = tbl[final_good_mask]
-        rej = np.sum(~final_good_mask)
-        print('Rejected {} more sources after qmax and excess clip'.format(rej))
+
+    tbl = do_stars_mp(xs, ys, skies, mod, data, ncpu)
+    # Last rejection pass
+    final_good_mask = (tbl['q']<qmax) & (tbl['cx']<cmax) & (tbl['cx']>cmin)
+    output_tbl = tbl[final_good_mask]
+    rej = np.sum(~final_good_mask)
+    print('Rejected {} more sources after qmax and excess clip'.format(rej))
+    
     return output_tbl
 #---------------------------DETECTION--------------------------------
 
