@@ -2,9 +2,9 @@ import math
 import numpy as np
 
 from functools import partial
-from itertools import product
+from itertools import product, starmap
 from multiprocessing import cpu_count, Pool
-from time import perf_counter
+# from time import perf_counter
 
 from astropy.io import fits
 from astropy.table import Table
@@ -13,6 +13,7 @@ from photutils.psf import FittableImageModel
 from photutils.psf.models import GriddedPSFModel
 from scipy.ndimage import convolve, maximum_filter
 from scipy.optimize import curve_fit
+from scipy.stats import sigmaclip
 
 from astropy.modeling import Fittable2DModel, Parameter
 
@@ -21,9 +22,43 @@ from .CatalogUtils import make_sky_coord_cat
 from .PSFPhot import check_images, get_standard_psf, validate_file
 from .PSFUtils import SlowGriddedFocusPSFModel, make_models
 
+class ImageHandler:
+    def __init__(self, image):
+        self.image_name = image
+        self._get_info()
+        pass
+
+    def _get_info(self):
+        hdu = fits.open(self.image_name)
+        self.pri_hdr = hdu[0].header
+        self.n_sci = [ext.name for ext in hdu].count('SCI')
+        self.sci_exts = [hdu['SCI', i] for i in range(self.n_sci)]
+        hdu.close()
+
+    def _get_models(self, mods):
+        im_mods = []
+        if self.pri_hdr['DETECTOR'] == 'UVIS':
+            for ext in self.sci_exts:
+                chip = ext.header['CCDCHIP']
+                ind = 2 - chip # chip vs index
+
+        pass
+
+    def detect_stars(self, hmin=5, fmin=1E3, pmax=7E4):
+        self._all_xs, self._all_ys, self._all_skies = [], [], []
+        for i, data in enumerate(self.sci_data):
+            filt_image, max_4sum = _filter_images(data, hmin)
+            # Find source candidates
+            xs, ys = _find_sources(data, filt_image, max_4sum, fmin, pmax)
+            skies = estimate_all_backgrounds(xs, ys, 8.5, 13.5, data)
+
+
+
+
+
 def run_python_psf_fitting(input_images, psf_model_file=None, hmin=5, fmin=1E3,
                            pmax=7E4, qmax=.5, cmin=-1., cmax=.1,
-                           ncpu=None):
+                           ncpu=None, focus_only=False):
     """
     Main function to run to do finding/PSF fitting of stars with python engine
 
@@ -76,8 +111,11 @@ def run_python_psf_fitting(input_images, psf_model_file=None, hmin=5, fmin=1E3,
     exts = [1] if det == 'IR' else [1,2]
 
     mods = make_models(psf_model_file)
+
+    all_tbls = []
     for im in input_images:
         print(im)
+        im_tbls = []
         sub_flag = fits.getval(im, 'SUBARRAY')
         if sub_flag:
             raise ValueError('Subarray images are not yet supported \
@@ -86,14 +124,19 @@ def run_python_psf_fitting(input_images, psf_model_file=None, hmin=5, fmin=1E3,
         for ext in exts:
             data = fits.getdata(im , extname='SCI', extver=ext)
             tbl = measure_stars(data, mods[ext-1], hmin, fmin, pmax,
-                                qmax, cmin, cmax, ncpu)
+                                qmax, cmin, cmax, ncpu, focus_only)
+
             tbl['x'] += 1.
             tbl['y'] += 1.
             make_sky_coord_cat(tbl, im, sci_ext=ext)
-            break
+            im_tbls.append(tbl)
+            print('='*40)
+            # break
+        all_tbls.append(im_tbls)
+    return all_tbls
 
 def measure_stars(data, mod, hmin=5, fmin=1E3, pmax=7E4,
-                  qmax=.5, cmin=-1., cmax=.1, ncpu=None):
+                  qmax=.5, cmin=-1., cmax=.1, ncpu=None, focus_only=False):
     """
     Finds and measures stars in data array using the PSF model.
 
@@ -157,6 +200,14 @@ def measure_stars(data, mod, hmin=5, fmin=1E3, pmax=7E4,
     ys = ys[mask]
     skies = skies[mask]
 
+    if isinstance(mod, SlowGriddedFocusPSFModel):
+        foc, foc_tbl = focus_peak(xs, ys, data, max_4sum[ys, xs],
+                              skies, mod, ncpu)
+        mod.interp_focus(foc)
+        if focus_only:
+            foc_tbl.meta['focus'] = foc
+            return foc_tbl
+
     # Measure the remaining candidates
 
     tbl = do_stars_mp(xs, ys, skies, mod, data, ncpu)
@@ -165,7 +216,7 @@ def measure_stars(data, mod, hmin=5, fmin=1E3, pmax=7E4,
     output_tbl = tbl[final_good_mask]
     rej = np.sum(~final_good_mask)
     print('Rejected {} more sources after qmax and excess clip'.format(rej))
-    
+
     return output_tbl
 #---------------------------DETECTION--------------------------------
 
@@ -290,6 +341,7 @@ def fit_star(xi, yi, bg_est, model, im_data):
         The scaled residual of the central pixel
 
     """
+    # start = perf_counter()
     # Should try making guesses for x,y to see if performance improves
     yg, xg = np.mgrid[-2:3,-2:3]
     yf, xf = yg+int(yi+.5), xg+int(xi+.5)
@@ -308,10 +360,13 @@ def fit_star(xi, yi, bg_est, model, im_data):
         q = np.sum(np.abs(resid))/popt[0]
         cx = resid[2,2]/popt[0]
     except (RuntimeError, ValueError):
-        popt = [np.nan, np.nan, np.nan, np.nan]
+        popt = [np.nan, np.nan, np.nan]
         q = np.nan
         cx = np.nan
     f, x, y = popt
+
+    # end = perf_counter()
+    # print(end-start)
     return f, x, y, q, cx
 
 
@@ -340,14 +395,17 @@ def do_stars_mp(xs, ys, skies, mod, data, ncpu):
     fit_func = partial(fit_star, model=flat_model, im_data=data)
     xy_sky = zip(xs, ys, skies)
     # start = perf_counter()
-    if ncpu is None:
-        p = Pool(cpu_count())
+    if ncpu == 1:
+        result = [fit_func(*xys) for xys in xy_sky]
     else:
-        p = Pool(ncpu)
+        if ncpu is None:
+            p = Pool(cpu_count())
+        else:
+            p = Pool(ncpu)
 
-    result = p.starmap(fit_func, xy_sky)
-    p.close()
-    p.join()
+        result = p.starmap(fit_func, xy_sky)
+        p.close()
+        p.join()
     # end = perf_counter()
     # print(end-start)
 
@@ -357,3 +415,46 @@ def do_stars_mp(xs, ys, skies, mod, data, ncpu):
     tbl['m'] = -2.5 * np.log10(tbl['m'])
     tbl = tbl['x', 'y', 'm', 'q', 's', 'cx']
     return tbl
+
+
+#-----------------------------FOCUS-----------------------------------
+
+def focus_peak(xs, ys, data, max_4sums, skies, mod, ncpu):
+    peak_flux = max_4sums - skies * 4.
+    indices = np.argsort(peak_flux)
+    top = indices[-15:]
+    tbls = []
+    foci = np.arange(0, float(mod.nfoc)+.25-1., .25)
+    for foc in foci:
+        # print('Testing focus level {}'.format(foc))
+        mod.interp_focus(foc)
+        tbl = do_stars_mp(xs[top], ys[top], skies[top], mod, data, 1)
+        tbls.append(tbl)
+        # print(tbl['q'].data)
+
+    foc = _find_min_q_foc(tbls, foci)
+    return foc
+
+def _find_min_q_foc(tbls, foci):
+    all_qs = np.array([t['q'].data for t in tbls])
+    all_qs[all_qs > .13] = np.nan
+    nanmask = np.any(np.isnan(all_qs), axis=0)
+    all_qs = all_qs[:,~nanmask]
+    # print(all_qs)
+
+    min_focs = foci[np.nanargmin(all_qs, axis=0)]
+    min_focs = sigmaclip(min_focs, low=2, high=2)[0]
+    # print(min_focs)
+    min_foc = np.nanmean(min_focs)
+    std_foc = np.nanstd(min_focs)
+    print('Mean focus: {} +/- {}'.format(min_foc, std_foc))
+
+    q_sums = np.sum(all_qs, axis=1)
+    # print(q_sums)
+    min_qsum = foci[np.argmin(q_sums)]
+    print('Min q sum foc = {}'.format(min_qsum))
+    import matplotlib.pyplot as plt
+    # fig = plt.figure()
+    # plt.imshow(all_qs, origin='lower')
+    # plt.ylabel('foci')
+    return min_qsum, tbls[np.argmin(q_sums)]

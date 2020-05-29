@@ -250,11 +250,11 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3,
             im_data = fits.getdata(f, ('sci', i+1))
             metas['apcorrs'].append(get_apcorr(im_data, cat))
 
-        det = hdr['DETECTOR']
-        det0 = det
-        if det != 'IR':
+        det = [hdr['DETECTOR']]
+        det0 = det[0]
+        if det0 != 'IR':
             # Determine which chip for UVIS or WFC (needed for subarray)
-            det = [det + str(fits.getval(f, 'CCDCHIP', 1))]
+            det = [det0 + str(fits.getval(f, 'CCDCHIP', 1))]
             wcslist = [HSTWCS(f, ext=('sci', 1))]
             if len(im_cats) == 2:
                 det += [det0 + str(fits.getval(f, 'CCDCHIP', ('sci', 2)))]

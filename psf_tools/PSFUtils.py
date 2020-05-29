@@ -260,7 +260,7 @@ def make_models(psf_file):
 
 
 
-    if len(ylocs > 4):   # 2 chips/UVIS data
+    if len(ylocs) > 4:   # 2 chips/UVIS data
         ylocs1 = ylocs[:4]
         ylocs2 = ylocs[4:]-2048
 
@@ -321,8 +321,8 @@ class SlowGriddedFocusPSFModel(GriddedPSFModel):
         self._focus_level = 0.
 
 
-    def _interp_focus(self, focus):
-        if not 0 <= focus <= self.nfoc:
+    def interp_focus(self, focus):
+        if not 0 <= focus <= self.nfoc-1:
             raise ValueError('Focus level {} not in range \
                              [0, {}]'.format(focus, self.nfoc))
         if focus != int(focus):
@@ -350,5 +350,5 @@ class SlowGriddedFocusPSFModel(GriddedPSFModel):
         if focus == None:
             focus = self._focus_level
         if focus != self._focus_level:
-            self._interp_focus(focus)
+            self.interp_focus(focus)
         return self.interp_model.evaluate(x, y, flux, x_0, y_0)

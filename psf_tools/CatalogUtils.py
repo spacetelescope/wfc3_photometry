@@ -78,7 +78,7 @@ def get_ext_wcs(image_name, sci_ext=None):
     ext_names = [ext.name for ext in hdu]
     n_sci = ext_names.count('SCI')
 
-    if n_sci == 1 and ext is None:
+    if n_sci == 1 and sci_ext is None:
         sci_ext = 1
         wcs_i = WCS(hdu['SCI', sci_ext].header, hdu)
     elif n_sci != 1 and sci_ext is None:
