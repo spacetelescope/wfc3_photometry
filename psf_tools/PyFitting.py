@@ -23,9 +23,10 @@ from .PSFPhot import check_images, get_standard_psf, validate_file
 from .PSFUtils import SlowGriddedFocusPSFModel, make_models
 
 class ImageHandler:
-    def __init__(self, image):
+    def __init__(self, image, det_mods):
         self.image_name = image
         self._get_info()
+        self._get_models(det_mods)
         pass
 
     def _get_info(self):
@@ -35,13 +36,15 @@ class ImageHandler:
         self.sci_exts = [hdu['SCI', i] for i in range(self.n_sci)]
         hdu.close()
 
-    def _get_models(self, mods):
-        im_mods = []
-        if self.pri_hdr['DETECTOR'] == 'UVIS':
+    def _get_models(self, det_mods):
+        self.mods = []
+        if self.pri_hdr['DETECTOR'] == 'UVIS' or self.pri_hdr['DETECTOR'] == 'WFC':
             for ext in self.sci_exts:
                 chip = ext.header['CCDCHIP']
                 ind = 2 - chip # chip vs index
-
+                self.mods.append(det_mods[i])
+        elif self.pri_hdr['DETECTOR'] == 'IR':
+            self.mods.append(det_mods[0])
         pass
 
     def detect_stars(self, hmin=5, fmin=1E3, pmax=7E4):
@@ -52,6 +55,19 @@ class ImageHandler:
             xs, ys = _find_sources(data, filt_image, max_4sum, fmin, pmax)
             skies = estimate_all_backgrounds(xs, ys, 8.5, 13.5, data)
 
+            # Give buffer of 10% for peak pixel tolerance
+            max_peak_val = _max_peakiness(self.mods[i]) + .1
+
+            # Throw out sources that are more peaked than PSF allows
+            # Throwing bad ones now improves performance
+            mask = reject_sources(xs, ys, data, max_4sum, skies, max_peak_val)
+            xs = xs[mask]
+            ys = ys[mask]
+            skies = skies[mask]
+
+            self.all_xs.append(xs)
+            self.all_ys.append(ys)
+            self.all_skies.append(skies)
 
 
 
