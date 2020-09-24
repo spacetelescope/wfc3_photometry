@@ -23,15 +23,31 @@ def _generate_input_coordinates(wcs_naxis, spacing=150.25, offset=100):
     input_grid = [grid_point for grid_point in input_grid]
     return np.array(input_grid)
 
+def _prefilter_coordinates(input_skycoords, xmin, xmax, ymin, ymax, flt_wcs):
+    # this probably will explode if the image contains a celestial pole?
+    inp_ra, inp_dec = input_skycoords.T
+
+    corners = [p for p in product([xmin, xmax], [ymin, ymax])]
+    corner_ra, corner_dec = flt_wcs.all_pix2world(corners, 1).T
+
+    mask_ra = (inp_ra>np.amin(corner_ra)) & (inp_ra < np.max(corner_ra))
+    mask_dec = (inp_dec>np.amin(corner_dec)) & (inp_dec<np.amax(corner_dec))
+    mask = mask_ra & mask_dec
+    return input_skycoords[mask]
+
+
 def _transform_points(input_skycoords, flt_wcs, padding=9):
 
     xmin = ymin = -1 * padding
     xmax, ymax = np.array(flt_wcs._naxis) + padding
 
-    xc, yc = flt_wcs.all_world2pix(input_skycoords, 1).T
+    filtered_coords = _prefilter_coordinates(input_skycoords, xmin, xmax,
+                                             ymin, ymax, flt_wcs)
+
+    xc, yc = flt_wcs.all_world2pix(filtered_coords, 1).T
     mask = (xc > xmin) & (xc < xmax) & (yc > ymin) & (yc < ymax)
 
-    return xc[mask], yc[mask]
+    return np.array([xc[mask], yc[mask]])
 
 def make_model_star_image(drz, input_images=None, models_only=True,
                         input_coordinates=None, psf_file=None):
@@ -91,7 +107,10 @@ def make_model_star_image(drz, input_images=None, models_only=True,
 
     mods = make_models(psf_file)
 
-    drz_wcs = WCS(fits.getheader(drz, 1))
+    if fits.getdata(drz, 0) is not None:
+        drz_wcs = WCS(fits.getheader(drz, 0))
+    else:
+        drz_wcs = WCS(fits.getheader(drz, 1))
 
     if input_coordinates is None:
         input_coordinates = _generate_input_coordinates(drz_wcs._naxis)
@@ -154,7 +173,9 @@ def insert_in_exposure(flt, input_skycoords, psf_models):
 
 def dumb_drizzle(drz, false_images):
     drz_hdr0 = fits.getheader(drz)
-    out = '_'.join(drz.split('_')[:-1]) + '_star'
+    out = drz.replace('_drz', '_star_drz')
+    out = drz.replace('_drc', '_star_drc')
+    print('OUTPUT NAME SHOULD BE {}'.format(out))
     astrodrizzle.AstroDrizzle(false_images, build=True, clean=True,
                               in_memory=True, final_refimage=drz,
                               final_wcs=True, skysub=False,
