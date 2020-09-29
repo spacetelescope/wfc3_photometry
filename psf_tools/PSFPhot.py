@@ -427,6 +427,7 @@ def process_peaks(peakmap, all_int_coords, input_cats,
         tmp_tbl.meta['detchip'] = metas['detchips'][i]
         tmp_tbl.meta['apcorr'] = metas['apcorrs'][i]
         tmp_tbl.meta['photflam'] = metas['photflams'][i]
+        tmp_tbl.meta['wcs'] = metas['wcss'][i]
         rx, ry = ref_wcs.all_world2pix(np.array([tmp_tbl['r'],tmp_tbl['d']]).T, 1).T
         tmp_tbl['rx'] = rx
         tmp_tbl['ry'] = ry

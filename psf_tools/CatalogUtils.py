@@ -14,6 +14,7 @@ from astroquery.gaia import Gaia
 from drizzlepac.wcs_functions import make_perfect_cd
 from scipy.stats import sigmaclip
 from skimage.draw import polygon
+from stsci.skypac import pamutils
 from stwcs.wcsutil.hstwcs import HSTWCS
 from stwcs.distortion import utils
 
@@ -399,7 +400,7 @@ def get_footprints(image):
     return footprints
 
 
-def pixel_area_correction(catalog, detchip, mag_colname='m'):
+def pixel_area_correction(catalog, detchip, mag_colname='m', wcs=None):
     """
     Performs pixel area correction on magnitude measurements in catalog.
 
@@ -425,14 +426,30 @@ def pixel_area_correction(catalog, detchip, mag_colname='m'):
         Name of the column containing the magnitudes to be corrected.
         Default is 'm'.
     """
-
-    pam_func = get_pam_func(detchip)
+    if 'ir' in detchip or 'uvis' in detchip:
+        pam_func = get_pam_func(detchip)
+    elif 'wfc' in detchip:
+        if wcs is None:
+            if 'wcs' in catalog.meta:
+                wcs = catalog.meta['wcs']
+            else:
+                raise ValueError('ACS image PAM correction requires WCS')
+        pam_func=get_acs_pamfunc(wcs)
 
     intx = np.array(catalog['x']).astype(int) - 1
     inty = np.array(catalog['y']).astype(int) - 1
     corrections = -2.5 * np.log10(pam_func(intx, inty))
 
     catalog['m'] += corrections
+
+def get_acs_pamfunc(wcs):
+    pam_array = pam_from_wcs(wcs)
+
+    # hacky, but keeps consistency with WFC3 version
+    def acs_pamfunc(xpix, ypix):
+        return pam_array[ypix, xpix]
+
+    return acs_pamfunc
 
 def get_pam_func(detchip):
     # TODO: Implement ACS Pixel Area Correction

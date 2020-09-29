@@ -13,7 +13,7 @@ from astropy.nddata import NDData
 
 # from .PyFitting import make_models, get_subtrahend
 from .PSFPhot import get_standard_psf, _get_exec_path
-from .CatalogUtils import get_pam_func
+from .CatalogUtils import get_pam_func, get acs_pamfunc
 
 
 def _generate_input_coordinates(wcs_naxis, spacing=150.25, offset=100):
@@ -160,6 +160,10 @@ def insert_in_exposure(flt, input_skycoords, psf_models):
             chip = ext.header['CCDCHIP']
             mod_ind = 2 - chip # 0 if UVIS2, 1 if UVIS1
             pam_func = get_pam_func(det + str(chip))
+        elif det == 'wfc':
+            chip = ext.header['CCDCHIP']
+            mod_ind = 2 - chip # 0 if UVIS2, 1 if UVIS1
+            pam_func = get_acs_pamfunc(wcs)
 
         pam_values = pam_func(*flt_positions - 1.)
         fluxes = hdul[0].header['EXPTIME']/pam_values
