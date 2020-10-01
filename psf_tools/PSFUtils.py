@@ -13,7 +13,7 @@ from astropy.nddata import NDData
 
 # from .PyFitting import make_models, get_subtrahend
 from .PSFPhot import get_standard_psf, _get_exec_path
-from .CatalogUtils import get_pam_func, get acs_pamfunc
+from .CatalogUtils import get_pam_func, get_acs_pamfunc
 
 
 def _generate_input_coordinates(wcs_naxis, spacing=150.25, offset=100):
@@ -96,14 +96,15 @@ def make_model_star_image(drz, input_images=None, models_only=True,
 
     if psf_file == None:
         path = os.path.dirname(_get_exec_path())
+        det = drz_hdr0['DETECToR']
         filt = drz_hdr0['FILTER']
         all_psf_filts = ['F105W', 'F110W', 'F125W', 'F127M', 'F139M',
                         'F140W', 'F160W', 'F225W', 'F275W', 'F336W',
-                        'F390W', 'F438W', 'F467M', 'F555W', 'F606W',
+                        'F390W', 'F435W','F438W', 'F467M', 'F555W', 'F606W',
                         'F775W', 'F814W', 'F850LP']
         if filt not in all_psf_filts:
             raise ValueError('No PSF to download for {}'.format(filt))
-        psf_file = get_standard_psf(path, filt)
+        psf_file = get_standard_psf(path, filt, det)
 
     mods = make_models(psf_file)
 
@@ -283,21 +284,24 @@ def make_models(psf_file):
     ylocs = [hdr['JPSFY'+str(i).zfill(2)] for i in range(1,11)]
     ylocs = np.array([yloc for yloc in ylocs if yloc != 9999]) -1
 
+    npsfs = len(xlocs) * len (ylocs)
 
 
     if len(ylocs) > 4:   # 2 chips/UVIS data
-        ylocs1 = ylocs[:4]
-        ylocs2 = ylocs[4:]-2048
+        split = int(len(ylocs)/2)
+        ylocs1 = ylocs[:split]
+        ylocs2 = ylocs[split:]-2048 # check if this is correct
 
         g_xypos1 = [p[::-1] for p in product(ylocs1, xlocs)]
         g_xypos2 = [p[::-1] for p in product(ylocs2, xlocs)]
 
         if len(psf_data.shape) == 3:
-            ndd1 = NDData(data=psf_data[:28],
+            psfsplit = int(npsfs/2)
+            ndd1 = NDData(data=psf_data[:psfsplit],
                           meta={'grid_xypos':g_xypos1, 'oversampling':4})
             mod1 = GriddedPSFModel(ndd1)
 
-            ndd2 = NDData(data=psf_data[28:],
+            ndd2 = NDData(data=psf_data[psfsplit:],
                           meta={'grid_xypos':g_xypos2, 'oversampling':4})
             mod2 = GriddedPSFModel(ndd2)
 

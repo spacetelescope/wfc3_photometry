@@ -565,6 +565,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
                     'F606W', 'F814W']
 
     filt = check_images(input_images)
+    det = fits.getval(input_images[0], 'detector')
 
     if 'GDC' not in upper_dict.keys() or upper_dict['GDC'].upper() == 'NONE':
         upper_dict['GDC']='NONE' # Set to NONE or capitalize to NONE
@@ -589,7 +590,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
         psf_file = get_focus_dependent_psf(file_dir, filt)
         keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
     elif 'PSF=' not in keyword_str and filt in all_psf_filts:
-        psf_file = get_standard_psf(file_dir, filt)
+        psf_file = get_standard_psf(file_dir, filt, det)
         keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
     elif 'PSF=' in keyword_str:
         psf_file = upper_dict['PSF']
@@ -704,7 +705,7 @@ def get_focus_dependent_psf(path, filt):
     print('Using PSF file {}'.format(psf_filename))
     return psf_filename
 
-def get_standard_psf(path, filt):
+def get_standard_psf(path, filt, det):
     """
     Checks if PSF file exists and if not downloads from WFC3 page.
 
@@ -721,12 +722,11 @@ def get_standard_psf(path, filt):
         Path PSF file was downloaded to/found at.
     """
     filt = filt[:5]
-    if 'F1' in filt:
-        detector = 'WFC3IR'
-    else:
-        detector = 'WFC3UV'
+    psf_dets = {'ir':'WFC3IR', 'uvis':'WFC3UV', 'wfc':'ACSWFC'}
+    detector = psf_dets[det.lower()]
     psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
     psf_path = '{}/{}'.format(path, psf_filename)
+
 
 
     if not os.path.exists(psf_path):
