@@ -26,7 +26,7 @@ from .MatchUtils import get_match_indices, make_id_list
 
 
 def align_images(input_images, reference_catalog=None,
-                 searchrad=None, gaia=False, **kwargs):
+                 searchrad=1.0, gaia=False, **kwargs):
     """
     Run TweakReg on the images, using the catalogs from hst1pass.
 
@@ -107,7 +107,7 @@ def collate(match_arr, tbls):
     n_images = len(tbls)
     exptimes = np.array([tbl.meta['exptime'] for tbl in tbls])
     apcorrs = np.array([tbl.meta['apcorr'] for tbl in tbls])
-    photflam = tbls[0].meta['photflam']
+    photflams = np.array([tbl.meta['photflam'] for tbl in tbls])
     for tbl in tbls:
         pixel_area_correction(tbl, tbl.meta['detchip'])
     print('Pixel Area Map correction complete')
@@ -128,8 +128,8 @@ def collate(match_arr, tbls):
                 xs[j,i] = tbls[i]['rx'][element]
                 ys[j,i] = tbls[i]['ry'][element]
 
-    mags += 2.5 * np.log10(exptimes)[None, :] - 21.1 - 2.5*np.log10(photflam)
-    if 'F1' in tbls[0].meta['filter'] or 'F098M' in tbls[0].meta['filter']:
+    mags += 2.5 * np.log10(exptimes)[None, :] - 21.1 - 2.5*np.log10(photflams)[None, :]
+    if 'ir' in tbls[0].meta['detchip'].lower():
         mags -= 2.5 * np.log10(exptimes)[None, :]
     mags -= apcorrs[None, :]
     print('Median aperture_correction {}'.format(np.nanmedian(apcorrs)))
@@ -232,15 +232,17 @@ def make_final_table(input_images, save_peakmap=True, min_detections=3,
     for f in input_images:
         hdr = fits.getheader(f)
         if hdr['INSTRUME'] == 'ACS':
+            photflam = fits.getval(f, 'PHOTFLAM', ext=1)
             filt = hdr['FILTER1']
             if filt == 'CLEAR1L' or filt == 'CLEAR1S':
                 filt = hdr['FILTER2']
         else:
             filt = hdr['FILTER']
+            photflam = hdr['PHOTFLAM']
         cat_wildcard = f.replace('.fits', '_sci?_xyrd.cat')
         im_cats = sorted(glob.glob(cat_wildcard))
         exptime = hdr['EXPTIME']
-        photflam = hdr['PHOTFLAM']
+
 
         input_catalogs += im_cats
         metas['filters'] += [filt] * len(im_cats)
@@ -570,7 +572,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     if 'GDC' not in upper_dict.keys() or upper_dict['GDC'].upper() == 'NONE':
         upper_dict['GDC']='NONE' # Set to NONE or capitalize to NONE
     elif upper_dict['GDC'].upper() == 'AUTO':
-        gdc = get_standard_gdc(file_dir, filt)
+        gdc = get_standard_gdc(file_dir, filt, det)
         upper_dict['GDC'] = gdc
         validate_file(upper_dict['GDC'])
     else:
@@ -619,7 +621,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     make_chip_catalogs(expected_output_list)
     return expected_output_list
 
-def get_standard_gdc(path, filt):
+def get_standard_gdc(path, filt, det):
     """
     Checks if GDC file exists and if not downloads from WFC3 page
 
@@ -644,13 +646,19 @@ def get_standard_gdc(path, filt):
         Path GDC file was downloaded to/found at.
     """
 
-    if 'F1' in filt:
+    if det == 'IR':
         detector = 'WFC3IR'
         gdc_filename = 'STDGDC_WFC3IR.fits'
-    else:
+    elif det == 'UVIS':
         # must do [:5] to handle LP filters
         detector = 'WFC3UV'
         gdc_filename = 'STDGDC_WFC3UV_{}.fits'.format(filt[:5])
+    elif det == 'WFC':
+        detector = 'ACSWFC'
+        gdc_filename = 'STDGDC_ACSWFC_{}.fits'.format(filt[:5])
+    elif det == 'HRC':
+        detector = 'ACSHRC'
+        gdc_filename = 'STDGDC_ACSHRC_{}.fits'.format(filt[:5])
 
     gdc_path = '{}/{}'.format(path, gdc_filename)
 
@@ -790,7 +798,16 @@ def check_images(input_images):
     filter_list = []
     for im in input_images:
         hdr = fits.getheader(im)
-        if hdr['INSTRUME'] != 'WFC3':
+        inst = hdr['INSTRUME']
+        if inst == 'ACS':
+            print('IS ACS')
+            filt1 = hdr['FILTER1']
+            filt2 = hdr['FILTER2']
+            filt = filt1
+            if filt1 == 'CLEAR1L' or filt1 == 'CLEAR1S':
+                filt = filt2
+            filter_list.append(filt)
+        elif inst not in ['WFC3', 'ACS']:
             raise ValueError('Image {} is not a WFC3 image'.format(im))
         else:
             filter_list.append(hdr['FILTER'])

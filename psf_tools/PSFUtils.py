@@ -25,7 +25,7 @@ def _generate_input_coordinates(wcs_naxis, spacing=150.25, offset=100):
 
 def _prefilter_coordinates(input_skycoords, xmin, xmax, ymin, ymax, flt_wcs):
     # this probably will explode if the image contains a celestial pole?
-    inp_ra, inp_dec = input_skycoords.T
+    inp_ra, inp_dec = np.array(input_skycoords).T
 
     corners = [p for p in product([xmin, xmax], [ymin, ymax])]
     corner_ra, corner_dec = flt_wcs.all_pix2world(corners, 1).T
@@ -86,8 +86,8 @@ def make_model_star_image(drz, input_images=None, models_only=True,
     """
     # Should probably roll a lot of this into other function
     drz_hdr0 = fits.getheader(drz, 0)
-    if drz_hdr0['INSTRUME'] != 'WFC3' and psf_file is None:
-        raise ValueError('Image is not a WFC3 Image, and thus not supported')
+    if drz_hdr0['INSTRUME'] not in ['ACS', 'WFC3'] and psf_file is None:
+        raise ValueError('Image is not an ACS or WFC3 Image, and thus not supported')
 
     if input_images is None:
         input_images = tweakback.extract_input_filenames(drz)
@@ -108,7 +108,7 @@ def make_model_star_image(drz, input_images=None, models_only=True,
 
     mods = make_models(psf_file)
 
-    if fits.getdata(drz, 0) is not None:
+    if fits.getheader(drz, 0)['NAXIS']!=0:
         drz_wcs = WCS(fits.getheader(drz, 0))
     else:
         drz_wcs = WCS(fits.getheader(drz, 1))
@@ -164,9 +164,10 @@ def insert_in_exposure(flt, input_skycoords, psf_models):
         elif det == 'wfc':
             chip = ext.header['CCDCHIP']
             mod_ind = 2 - chip # 0 if UVIS2, 1 if UVIS1
-            pam_func = get_acs_pamfunc(wcs)
+            pam_func = get_acs_pamfunc(ext_wcs)
 
-        pam_values = pam_func(*flt_positions - 1.)
+        int_flt_pos = (flt_positions-1).astype(int)
+        pam_values = pam_func(*int_flt_pos)
         fluxes = hdul[0].header['EXPTIME']/pam_values
 
         false_image = get_subtrahend(*flt_positions, fluxes,

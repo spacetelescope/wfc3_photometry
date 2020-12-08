@@ -46,7 +46,7 @@ def get_apcorr(data, cat):
         Aperture correction from PSF mag to 10 pixel aperture mag.
     """
     t = Table.read(cat, format='ascii.commented_header')
-    ap_t = photometry(data, coords=np.array([t['x'], t['y']]), salgorithm='median',
+    ap_t = photometry(data, coords=np.array([t['x'], t['y']]).T, salgorithm='median',
                       radius=10., annulus=10., dannulus=3., origin=1., )
     delta = t['m'] - ap_t['mag']
     # print(np.nanmedian(delta))
@@ -426,9 +426,10 @@ def pixel_area_correction(catalog, detchip, mag_colname='m', wcs=None):
         Name of the column containing the magnitudes to be corrected.
         Default is 'm'.
     """
-    if 'ir' in detchip or 'uvis' in detchip:
+    # print('DC is {}'.format(detchip))
+    if 'ir' in detchip.lower() or 'uvis' in detchip.lower():
         pam_func = get_pam_func(detchip)
-    elif 'wfc' in detchip:
+    elif 'wfc' in detchip.lower():
         if wcs is None:
             if 'wcs' in catalog.meta:
                 wcs = catalog.meta['wcs']
@@ -436,17 +437,19 @@ def pixel_area_correction(catalog, detchip, mag_colname='m', wcs=None):
                 raise ValueError('ACS image PAM correction requires WCS')
         pam_func=get_acs_pamfunc(wcs)
 
-    intx = np.array(catalog['x']).astype(int) - 1
-    inty = np.array(catalog['y']).astype(int) - 1
+    intx = np.array(catalog['x']- 1).astype(int)
+    inty = np.array(catalog['y']- 1).astype(int)
     corrections = -2.5 * np.log10(pam_func(intx, inty))
 
     catalog['m'] += corrections
 
 def get_acs_pamfunc(wcs):
-    pam_array = pam_from_wcs(wcs)
+    pam_array = pamutils.pam_from_wcs(wcs)
 
     # hacky, but keeps consistency with WFC3 version
     def acs_pamfunc(xpix, ypix):
+        ypix = np.clip(ypix, 0, pam_array.shape[0]-1)
+        xpix = np.clip(xpix, 0, pam_array.shape[1]-1)
         return pam_array[ypix, xpix]
 
     return acs_pamfunc

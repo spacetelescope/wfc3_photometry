@@ -156,7 +156,7 @@ class RadialProfile:
         General setup procedure.
         """
         self.ap = CircularAperture((self.x, self.y), r=self.r)
-        mask = self.ap.to_mask()[0]
+        mask = self.ap.to_mask()
         self.sy = mask.bbox.slices[0]
         self.sx = mask.bbox.slices[1]
         self.cutout = mask.cutout(data, fill_value=np.nan)
