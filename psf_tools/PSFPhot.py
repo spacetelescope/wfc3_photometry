@@ -562,7 +562,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
     all_psf_filts = ['F105W', 'F110W', 'F125W', 'F127M', 'F139M',
                     'F140W', 'F160W', 'F225W', 'F275W', 'F336W',
                     'F390W', 'F438W', 'F467M', 'F555W', 'F606W',
-                    'F775W', 'F814W', 'F850LP']
+                    'F775W', 'F814W', 'F850LP'] + ['F435W', 'F625W']
     focus_filts = ['F275W', 'F336W', 'F410M', 'F438W', 'F467M',
                     'F606W', 'F814W']
 
