@@ -178,7 +178,31 @@ def match_to_master_catalog(master_cat, sci_cat, max_distance=.05):
     idx, ang, wat = sci_skycoord.match_to_catalog_sky(master_skycoord)
     distance_mask = ang.arcsec  < max_distance
     master_cat['id'] = range(len(master_cat))
-    idx[ang.arcsec>.05] = -1
+    idx[~distance_mask] = -1
+
+    # duplicate removal
+    seen = set()
+    dupes = []
+    for i, idxi in enumerate(idx):
+        if idxi == -1: continue
+        if idxi not in seen:
+            seen.add(idxi)
+        elif idxi in seen:
+            dupes.append(idxi)
+
+    for d in set(dupes):
+        print(d)
+        # find index of dupes
+        inds = np.where(idx==d)[0]
+        # minimum distance dupe
+        dup_dists = ang.arcsec[inds]
+        minind = np.argmin(dup_dists)
+
+        # set all dupes to -1
+        idx[inds] = -1
+        # set closest dupe back to idx of dupe
+        idx[inds[minind]] = d
+
     sci_copy= copy(sci_cat)
     sci_copy['id'] = idx
     joined = join(master_cat, sci_copy, keys='id', join_type='left')

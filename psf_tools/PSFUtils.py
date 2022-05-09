@@ -33,24 +33,29 @@ def _prefilter_coordinates(input_skycoords, xmin, xmax, ymin, ymax, flt_wcs):
     mask_ra = (inp_ra>np.amin(corner_ra)) & (inp_ra < np.max(corner_ra))
     mask_dec = (inp_dec>np.amin(corner_dec)) & (inp_dec<np.amax(corner_dec))
     mask = mask_ra & mask_dec
-    return input_skycoords[mask]
+    return mask
+    # return input_skycoords[mask]
 
 
-def _transform_points(input_skycoords, flt_wcs, padding=9):
+def _transform_points(input_skycoords, flt_wcs, padding=9, input_fluxes=None):
 
     xmin = ymin = -1 * padding
     xmax, ymax = np.array(flt_wcs._naxis) + padding
 
-    filtered_coords = _prefilter_coordinates(input_skycoords, xmin, xmax,
+    fmask = _prefilter_coordinates(input_skycoords, xmin, xmax,
                                              ymin, ymax, flt_wcs)
-
+    filtered_coords = input_skycoords[fmask]
     xc, yc = flt_wcs.all_world2pix(filtered_coords, 1).T
     mask = (xc > xmin) & (xc < xmax) & (yc > ymin) & (yc < ymax)
 
-    return np.array([xc[mask], yc[mask]])
+    if input_fluxes is not None:
+        return np.array([xc[mask], yc[mask]]), input_fluxes[fmask][mask]
+    else:
+        return np.array([xc[mask], yc[mask]]), None
 
 def make_model_star_image(drz, input_images=None, models_only=True,
-                        input_coordinates=None, psf_file=None):
+                        input_coordinates=None, psf_file=None,
+                        override_model=None, input_fluxes=None):
     """
     Main function for making false star drz/drc
 
@@ -94,9 +99,9 @@ def make_model_star_image(drz, input_images=None, models_only=True,
         drz_dir = os.path.split(drz)[0]
         input_images = [os.path.join(drz_dir, im) for im in input_images]
 
-    if psf_file == None:
+    if psf_file is None and override_model is None:
         path = os.path.dirname(_get_exec_path())
-        det = drz_hdr0['DETECToR']
+        det = drz_hdr0['DETECTOR']
         filt = drz_hdr0['FILTER']
         all_psf_filts = ['F105W', 'F110W', 'F125W', 'F127M', 'F139M',
                         'F140W', 'F160W', 'F225W', 'F275W', 'F336W',
@@ -106,7 +111,13 @@ def make_model_star_image(drz, input_images=None, models_only=True,
             raise ValueError('No PSF to download for {}'.format(filt))
         psf_file = get_standard_psf(path, filt, det)
 
-    mods = make_models(psf_file)
+    if override_model is None:
+        mods = make_models(psf_file)
+    else:
+        if isinstance(override_model, list) or isinstance(override_model, tuple):
+            mods = override_model
+        else:
+            mods = (override_model, None)
 
     if fits.getheader(drz, 0)['NAXIS']!=0:
         drz_wcs = WCS(fits.getheader(drz, 0))
@@ -120,14 +131,15 @@ def make_model_star_image(drz, input_images=None, models_only=True,
     output_files = []
     for im in input_images:
         print('Making false star image for {}'.format(im))
-        complete_image = insert_in_exposure(im, input_skycoords, mods)
+        complete_image = insert_in_exposure(im, input_skycoords, mods, input_fluxes, models_only)
         output_files.append(complete_image)
 
     dumb_drizzle(drz, output_files)
     return output_files
 
 
-def insert_in_exposure(flt, input_skycoords, psf_models):
+def insert_in_exposure(flt, input_skycoords, psf_models, input_fluxes=None,
+                        models_only=True):
     # TODO: Make this handle subarrays
 
     # handle both flt and flc case
@@ -139,20 +151,28 @@ def insert_in_exposure(flt, input_skycoords, psf_models):
 
     sci_count  = 0
 
-    # zero out dat arrays
-    for hdu in hdul:
-        if hdu.name in ['SCI', 'ERR']:
-            hdu.data *= 0. # floating point data
+    if models_only:
+        # zero out dat arrays
+        for hdu in hdul:
+            if hdu.name in ['SCI', 'ERR']:
+                hdu.data *= 0. # floating point data
+                if hdu.name == 'SCI':
+                    sci_count += 1
+            elif hdu.name =='DQ':
+                hdu.data *= 0 # int data
+
+    else:
+        for hdu in hdul:
             if hdu.name == 'SCI':
                 sci_count += 1
-        elif hdu.name =='DQ':
-            hdu.data *= 0 # int data
 
     # Get the false stars in!
     for i in range(sci_count):
         ext = hdul['SCI',i+1]
         ext_wcs = WCS(ext.header, hdul)
-        flt_positions = np.array(_transform_points(input_skycoords, ext_wcs))
+        flt_positions, fluxes = np.array(_transform_points(input_skycoords,
+                                                            ext_wcs,
+                                                            input_fluxes=input_fluxes))
 
         if det == 'ir':
             pam_func = get_pam_func(det)
@@ -165,10 +185,13 @@ def insert_in_exposure(flt, input_skycoords, psf_models):
             chip = ext.header['CCDCHIP']
             mod_ind = 2 - chip # 0 if UVIS2, 1 if UVIS1
             pam_func = get_acs_pamfunc(ext_wcs)
+        elif det == 'sbc':
+            mod_ind = 0 # 0 if UVIS2, 1 if UVIS1
+            pam_func = get_acs_pamfunc(ext_wcs)
 
         int_flt_pos = (flt_positions-1).astype(int)
         pam_values = pam_func(*int_flt_pos)
-        fluxes = hdul[0].header['EXPTIME']/pam_values
+        fluxes = fluxes*hdul[0].header['EXPTIME']/pam_values
 
         false_image = get_subtrahend(*flt_positions, fluxes,
                                       psf_models[mod_ind], ext.data.shape)
@@ -180,7 +203,7 @@ def insert_in_exposure(flt, input_skycoords, psf_models):
 def dumb_drizzle(drz, false_images):
     drz_hdr0 = fits.getheader(drz)
     out = drz.replace('_drz', '_star_drz')
-    out = drz.replace('_drc', '_star_drc')
+    out = out.replace('_drc', '_star_drc')
     print('OUTPUT NAME SHOULD BE {}'.format(out))
     astrodrizzle.AstroDrizzle(false_images, build=True, clean=True,
                               in_memory=True, final_refimage=drz,

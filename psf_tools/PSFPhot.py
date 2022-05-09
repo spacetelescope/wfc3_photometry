@@ -137,7 +137,7 @@ def collate(match_arr, tbls):
     np.savetxt('qs.txt', qs)
 
     print('Clipping the fit quality')
-    clipped_q = sigma_clip(qs, sigma=2.5, axis=1, copy=True)
+    clipped_q = sigma_clip(qs, sigma=2.5, axis=1, copy=True, masked=True)
     clip_mask = clipped_q.mask
 
     orig_nans = np.sum(np.isnan(mags))
@@ -589,7 +589,7 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
         if filt not in focus_filts:
             raise('{} does not have a focus dependent PSF \
                     model file, cannot find focus'.format(filt))
-        psf_file = get_focus_dependent_psf(file_dir, filt)
+        psf_file = get_focus_dependent_psf(file_dir, filt, det)
         keyword_str = '{} PSF={}'.format(keyword_str, psf_file)
     elif 'PSF=' not in keyword_str and filt in all_psf_filts:
         psf_file = get_standard_psf(file_dir, filt, det)
@@ -664,7 +664,7 @@ def get_standard_gdc(path, filt, det):
 
     if not os.path.exists(gdc_path):
         print('Downloading GDC File.  Size ~= 300MB, this may take a while.')
-        url = 'http://www.stsci.edu/~jayander/STDGDCs/{}/{}'.format(
+        url = 'https://www.stsci.edu/~jayander/HST1PASS/GDCs/STDGDCs/{}/{}'.format(
             detector, gdc_filename)
         urllib.request.urlretrieve(url, gdc_path)
         print('Saving GDC file to {}'.format(gdc_path))
@@ -677,7 +677,7 @@ def get_standard_gdc(path, filt, det):
     print('Using GDC file {}'.format(gdc_filename))
     return gdc_filename
 
-def get_focus_dependent_psf(path, filt):
+def get_focus_dependent_psf(path, filt, det):
     """
     Checks if PSF file exists and if not downloads from WFC3 page.
 
@@ -695,15 +695,21 @@ def get_focus_dependent_psf(path, filt):
     """
 
     filt = filt[:5]
-    psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filt)
+
+    psf_dets = {'uvis':'WFC3UV', 'wfc':'ACSWFC'}
+    detector = psf_dets[det.lower()]
+    psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
     psf_path = '{}/{}'.format(path, psf_filename)
+
+    # psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filt)
+    # psf_path = '{}/{}'.format(path, psf_filename)
 
     if not os.path.exists(psf_path):
         print('Downloading PSF')
-        psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filt)
+        psf_filename = 'STDPBF_{}_{}.fits'.format(detector, filt)
 
-        url = 'http://www.stsci.edu/~jayander/STDPBFs/WFC3UV/{}'.format(
-            psf_filename)
+        url = 'https://www.stsci.edu/~jayander/HST1PASS/PSFs/STDPBFs/{}/{}'.format(
+            detector, psf_filename)
         urllib.request.urlretrieve(url, psf_path)
         print('Saving PSF file to {}'.format(psf_path))
 
@@ -741,7 +747,7 @@ def get_standard_psf(path, filt, det):
         print('Downloading PSF')
 
 
-        url = 'http://www.stsci.edu/~jayander/STDPSFs/{}/{}'.format(
+        url = 'https://www.stsci.edu/~jayander/HST1PASS/PSFs/STDPSFs/{}/{}'.format(
             detector, psf_filename)
         urllib.request.urlretrieve(url, psf_path)
         print('Saving PSF file to {}'.format(psf_path))

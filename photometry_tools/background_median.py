@@ -22,6 +22,7 @@ import numpy as np
 # WAY faster than astropy.stats.sigma_clipped_stats
 from scipy.stats import sigmaclip
 from astropy.table import Table
+from photutils.aperture.mask import ApertureMask
 
 def aperture_stats_tbl(data, apertures,
                        method='exact', sigma_clip=True):
@@ -62,6 +63,8 @@ def aperture_stats_tbl(data, apertures,
 
     # Get the masks that will be used to identify our desired pixels.
     masks = apertures.to_mask(method=method)
+    if isinstance(masks, ApertureMask): # fix different return types
+        masks = [masks]
 
     # Compute the stats of pixels within the masks
     aperture_stats = [calc_aperture_mmm(data, mask, sigma_clip)

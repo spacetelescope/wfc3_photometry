@@ -105,7 +105,7 @@ def photometry(
         raise RuntimeError('Either coords or coordfile must be defined\
                             see docstring for details.')
 
-    xy = xy - origin # Normalize positions to phoutils coordinates
+    xy = list(zip(*(np.array(xy).T - origin))) # Normalize positions to phoutils coordinates
 
     phot_apertures = CircularAperture(xy, radius)
     bg_apertures = CircularAnnulus(xy, annulus, annulus+dannulus)
