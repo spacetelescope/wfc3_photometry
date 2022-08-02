@@ -738,17 +738,15 @@ def get_standard_psf(path, filt, det):
     filt = filt[:5]
     psf_dets = {'ir':'WFC3IR', 'uvis':'WFC3UV', 'wfc':'ACSWFC'}
     detector = psf_dets[det.lower()]
-    psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
+    psf_filename = 'STDPSF_{}_{}.fits'.format(detector, filt)
     psf_path = '{}/{}'.format(path, psf_filename)
-
-
 
     if not os.path.exists(psf_path):
         print('Downloading PSF')
 
+        url = 'https://www.stsci.edu/~jayander/HST1PASS/LIB/PSFs/STDPSFs/{}/{}'.format(detector, psf_filename)
+        print(url)
 
-        url = 'https://www.stsci.edu/~jayander/HST1PASS/PSFs/STDPSFs/{}/{}'.format(
-            detector, psf_filename)
         urllib.request.urlretrieve(url, psf_path)
         print('Saving PSF file to {}'.format(psf_path))
 
@@ -756,7 +754,9 @@ def get_standard_psf(path, filt, det):
         print('Copying PSF file to current directory')
         shutil.copy(psf_path, '.')
     print('Using PSF file {}'.format(psf_filename))
+
     return psf_filename
+
 
 def validate_file(input_file):
     """
