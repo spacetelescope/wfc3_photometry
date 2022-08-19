@@ -23,6 +23,14 @@ def _generate_input_coordinates(wcs_naxis, spacing=150.25, offset=100):
     input_grid = [grid_point for grid_point in input_grid]
     return np.array(input_grid)
 
+
+def _generate_input_fluxes(number, flux_countrate=40):
+    """ Generate fluxes for stars in image given number of grid points in input_coordinates. Fluxes are in units of e-/s (I think)"""
+
+    fluxes = np.full(number, flux_countrate)
+    return fluxes
+
+
 def _prefilter_coordinates(input_skycoords, xmin, xmax, ymin, ymax, flt_wcs):
     # this probably will explode if the image contains a celestial pole?
     inp_ra, inp_dec = np.array(input_skycoords).T
@@ -53,9 +61,11 @@ def _transform_points(input_skycoords, flt_wcs, padding=9, input_fluxes=None):
     else:
         return np.array([xc[mask], yc[mask]]), None
 
-def make_model_star_image(drz, input_images=None, models_only=True,
-                        input_coordinates=None, psf_file=None,
-                        override_model=None, input_fluxes=None):
+
+def make_model_star_image(drz, input_images=None,
+                          models_only=True, input_coordinates=None,
+                          psf_file=None, override_model=None,
+                          input_fluxes=None, flux_countrate=1):
     """
     Main function for making false star drz/drc
 
@@ -83,31 +93,46 @@ def make_model_star_image(drz, input_images=None, models_only=True,
     psf_file : str, optional
         Path to file containing PSF models.  If none, automatically determined
         and downloaded using header information of `drz`.
+    flux_countrate : float, optional
+        Approximate flux in e-/s of PSF models to place in FLT/FLC images. Only
+        relevant if `input_fluxes` is not specified.
 
     Returns
     -------
     output_files : list
         List containing the paths to the false star flts/flcs.
+    drizzled_file : str
+        Path to final drizzled file containing PSFs.
     """
     # Should probably roll a lot of this into other function
+    drz_dir = os.path.split(drz)[0]
     drz_hdr0 = fits.getheader(drz, 0)
+
     if drz_hdr0['INSTRUME'] not in ['ACS', 'WFC3'] and psf_file is None:
         raise ValueError('Image is not an ACS or WFC3 Image, and thus not supported')
 
     if input_images is None:
         input_images = tweakback.extract_input_filenames(drz)
-        drz_dir = os.path.split(drz)[0]
         input_images = [os.path.join(drz_dir, im) for im in input_images]
 
     if psf_file is None and override_model is None:
         path = os.path.dirname(_get_exec_path())
         det = drz_hdr0['DETECTOR']
-        filt = drz_hdr0['FILTER']
-        all_psf_filts = ['F105W', 'F110W', 'F125W', 'F127M', 'F139M',
-                        'F140W', 'F160W', 'F225W', 'F275W', 'F336W',
-                        'F390W', 'F435W','F438W', 'F467M', 'F555W', 'F606W',
-                        'F775W', 'F814W', 'F850LP']
-        if filt not in all_psf_filts:
+
+        if det == 'WFC':
+            filt = drz_hdr0['FILTER1']
+            if filt[:5] == 'CLEAR':
+                filt = drz_hdr0['FILTER2']
+            avail_filts = ['F435W', 'F475W', 'F606W', 'F625W',
+                           'F775W', 'F814W', 'F850LP']
+        else:
+            filt = drz_hdr0['FILTER']
+            avail_filts = ['F105W', 'F110W', 'F125W', 'F127M', 'F139M',
+                        'F140W', 'F153M', 'F160W', 'F225W', 'F275W', 'F336W',
+                        'F390W', 'F438W', 'F467M', 'F555W', 'F606W',
+                        'F621M', 'F775W', 'F814W', 'F850LP']
+
+        if filt not in avail_filts:
             raise ValueError('No PSF to download for {}'.format(filt))
         psf_file = get_standard_psf(path, filt, det)
 
@@ -128,14 +153,26 @@ def make_model_star_image(drz, input_images=None, models_only=True,
         input_coordinates = _generate_input_coordinates(drz_wcs._naxis)
     input_skycoords = drz_wcs.all_pix2world(input_coordinates, 1)
 
-    output_files = []
-    for im in input_images:
-        print('Making false star image for {}'.format(im))
-        complete_image = insert_in_exposure(im, input_skycoords, mods, input_fluxes, models_only)
-        output_files.append(complete_image)
+    if input_fluxes is None:
+        input_fluxes = _generate_input_fluxes(input_skycoords.shape[0],
+                                              flux_countrate)
 
-    dumb_drizzle(drz, output_files)
-    return output_files
+    # Check that all input image files exist before continuing
+    bools = [os.path.exists(im) for im in input_images]
+    if all(bools):
+
+        output_files = []
+        for im in input_images:
+            print('Making false star image for {}'.format(im))
+            complete_image = insert_in_exposure(im, input_skycoords, mods, input_fluxes, models_only)
+            output_files.append(complete_image)
+
+    else:
+        sys.exit(f'All FLT/FLCs used for input DRZ/DRC have not been found in same directory as DRZ/DRC. Please place them in {drz_dir}.')
+
+    drizzled_file = dumb_drizzle(drz, output_files)
+
+    return output_files, drizzled_file
 
 
 def insert_in_exposure(flt, input_skycoords, psf_models, input_fluxes=None,
@@ -144,7 +181,6 @@ def insert_in_exposure(flt, input_skycoords, psf_models, input_fluxes=None,
 
     # handle both flt and flc case
     new_name = flt.replace('.fits', '_star.fits')
-
 
     hdul = fits.open(flt) # DO NOT USE MODE='UPDATE'
     det = hdul[0].header['DETECTOR'].lower()
@@ -198,6 +234,7 @@ def insert_in_exposure(flt, input_skycoords, psf_models, input_fluxes=None,
         ext.data += false_image
 
     hdul.writeto(new_name, overwrite=True)
+
     return new_name
 
 def dumb_drizzle(drz, false_images):
@@ -213,7 +250,7 @@ def dumb_drizzle(drz, false_images):
                               final_pixfrac=drz_hdr0['D001PIXF'],
                               preserve=False, context=False, output=out)
 
-
+    return out
 
 #---------------------------SUBTRACTION--------------------------------
 

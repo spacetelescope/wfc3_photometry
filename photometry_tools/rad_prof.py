@@ -38,7 +38,7 @@ Use
 import numpy as np
 import matplotlib.pyplot as plt
 
-from photutils import centroid_com, centroid_1dg, centroid_2dg
+from photutils.centroids import centroid_com, centroid_1dg, centroid_2dg
 from photutils.aperture import CircularAperture
 from scipy.optimize import curve_fit
 from scipy.stats import chisquare
