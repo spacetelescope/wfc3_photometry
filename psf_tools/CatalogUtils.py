@@ -47,7 +47,7 @@ def get_apcorr(data, cat):
     """
     t = Table.read(cat, format='ascii.commented_header')
     ap_t = photometry(data, coords=np.array([t['x'], t['y']]).T, salgorithm='median',
-                      radius=3., annulus=4., dannulus=3., origin=1., )
+                      radius=3., annulus=5., dannulus=5., origin=1., )
     delta = t['m'] - ap_t['mag']
     print(np.nanmedian(delta))
     nonzero_q = (t['q'] > 0)
@@ -271,7 +271,7 @@ def create_coverage_map(input_wcss, ref_wcs):
 
     for hwcs in input_wcss:
         vx, vy = ref_wcs.all_world2pix(hwcs.calc_footprint(), 0).T - .5
-        poly_xs, poly_ys = (vx, vy, coverage_image.shape[::-1])
+        poly_xs, poly_ys = polygon(vx, vy, coverage_image.shape[::-1])
         coverage_image[poly_ys, poly_xs] += 1
     return coverage_image
 

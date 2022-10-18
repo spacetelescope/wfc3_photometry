@@ -97,7 +97,6 @@ def compute_coverage(drz, cat):
         created drizzled image.
     """
 
-    """
     ref_wcs = WCS(fits.getheader(drz,'SCI'))
     hdrtab = Table.read(drz,'HDRTAB')
     wcs_list = make_wcs_list(hdrtab)

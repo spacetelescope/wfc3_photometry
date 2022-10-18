@@ -174,9 +174,11 @@ class RadialProfile:
         try:
             amp0 = np.amax(self.values)
             bias0 = np.nanmedian(self.values)
+            sigs = np.sqrt(np.abs(self.values))
             best_vals, covar = curve_fit(RadialProfile.profile_model,
                                         self.distances,
                                         self.values,
+                                        sigma=sigs,
                                         p0 = [amp0, 1.5, 1.5, bias0],
                                         bounds = ([0., .3, .5, 0],
                                                   [np.inf, 10., 10., np.inf]))
@@ -236,7 +238,8 @@ class RadialProfile:
 
         else:
             # Fit 2D gaussian
-            xg1, yg1 = centroid_2dg(self.cutout)
+            # xg1, yg1 = centroid_2dg(self.cutout)
+            xg1, yg1 = centroid_com(self.cutout)
             dx = xg1 + self.sx.start - self.x
             dy = yg1 + self.sy.start - self.y
             dr = (dx ** 2. + dy ** 2.) ** .5

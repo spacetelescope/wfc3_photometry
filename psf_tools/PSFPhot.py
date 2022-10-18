@@ -664,7 +664,7 @@ def get_standard_gdc(path, filt, det):
 
     if not os.path.exists(gdc_path):
         print('Downloading GDC File.  Size ~= 300MB, this may take a while.')
-        url = 'https://www.stsci.edu/~jayander/HST1PASS/GDCs/STDGDCs/{}/{}'.format(
+        url = 'https://www.stsci.edu/~jayander/HST1PASS/LIB/GDCs/STDGDCs/{}/{}'.format(
             detector, gdc_filename)
         urllib.request.urlretrieve(url, gdc_path)
         print('Saving GDC file to {}'.format(gdc_path))
@@ -698,7 +698,7 @@ def get_focus_dependent_psf(path, filt, det):
 
     psf_dets = {'uvis':'WFC3UV', 'wfc':'ACSWFC'}
     detector = psf_dets[det.lower()]
-    psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
+    psf_filename = 'STDPBF_{}_{}.fits'.format(detector, filt)
     psf_path = '{}/{}'.format(path, psf_filename)
 
     # psf_filename = 'STDPBF_WFC3UV_{}.fits'.format(filt)
@@ -708,7 +708,7 @@ def get_focus_dependent_psf(path, filt, det):
         print('Downloading PSF')
         psf_filename = 'STDPBF_{}_{}.fits'.format(detector, filt)
 
-        url = 'https://www.stsci.edu/~jayander/HST1PASS/PSFs/STDPBFs/{}/{}'.format(
+        url = 'https://www.stsci.edu/~jayander/HST1PASS/LIB/PSFs/STDPBFs/{}/{}'.format(
             detector, psf_filename)
         urllib.request.urlretrieve(url, psf_path)
         print('Saving PSF file to {}'.format(psf_path))
@@ -738,7 +738,7 @@ def get_standard_psf(path, filt, det):
     filt = filt[:5]
     psf_dets = {'ir':'WFC3IR', 'uvis':'WFC3UV', 'wfc':'ACSWFC'}
     detector = psf_dets[det.lower()]
-    psf_filename = 'PSFSTD_{}_{}.fits'.format(detector, filt)
+    psf_filename = 'STDPSF_{}_{}.fits'.format(detector, filt)
     psf_path = '{}/{}'.format(path, psf_filename)
 
 
@@ -747,7 +747,7 @@ def get_standard_psf(path, filt, det):
         print('Downloading PSF')
 
 
-        url = 'https://www.stsci.edu/~jayander/HST1PASS/PSFs/STDPSFs/{}/{}'.format(
+        url = 'https://www.stsci.edu/~jayander/HST1PASS/LIB/PSFs/STDPSFs/{}/{}'.format(
             detector, psf_filename)
         urllib.request.urlretrieve(url, psf_path)
         print('Saving PSF file to {}'.format(psf_path))
