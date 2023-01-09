@@ -38,7 +38,7 @@ Use
 import numpy as np
 import matplotlib.pyplot as plt
 
-from photutils import centroid_com, centroid_1dg, centroid_2dg
+from photutils.centroids import centroid_com, centroid_1dg, centroid_2dg
 from photutils.aperture import CircularAperture
 from scipy.optimize import curve_fit
 from scipy.stats import chisquare
@@ -157,8 +157,9 @@ class RadialProfile:
         """
         self.ap = CircularAperture((self.x, self.y), r=self.r)
         mask = self.ap.to_mask()
-        self.sy = mask.bbox.slices[0]
-        self.sx = mask.bbox.slices[1]
+        # self.sy = mask.bbox.slices[0]
+        # self.sx = mask.bbox.slices[1]
+        self.sy, self.sx = mask.bbox.get_overlap_slices(data.shape)[0]
         self.cutout = mask.cutout(data, fill_value=np.nan)
 
         if self.cutout is None:
@@ -187,7 +188,8 @@ class RadialProfile:
             self.amp, self.gamma, self.alpha, self.bias = best_vals
             self.fitted = True
             mod = RadialProfile.profile_model(self.distances, *best_vals)
-            self.chisquared = chisquare(self.values, mod, ddof=4)[0]
+            # self.chisquared = chisquare(self.values, mod, ddof=4)[0]
+            self.chisquared = np.nan
         except Exception as e:
             print(e)
             self.amp, self.gamma, self.alpha, self.bias = [np.nan] * 4

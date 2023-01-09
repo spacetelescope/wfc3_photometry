@@ -210,8 +210,20 @@ def read_one_pass_tbl(input_catalog):
         hst1pass catalog.
     """
 
-    penultimate_line = open(input_catalog).readlines()[-2]
-    cols = penultimate_line.strip('#').replace('.', '').split()
+    lns = open(input_catalog).readlines()
+    ntrailing = 0
+    for ln in lns[::-1]:
+        if ln[0] == '#':
+            ntrailing += 1
+        elif ln[0] != '#':
+            break
+
+
+    # print(lns[::-1][:ntrailing])
+    col_line = lns[::-1][ntrailing-2]
+    # print(col_line)
+
+    cols = col_line.strip('#').replace('.', '').split()
     derp = np.loadtxt(input_catalog)
     tbl = Table(derp, names=cols)
     return tbl
