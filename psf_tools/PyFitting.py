@@ -4,6 +4,7 @@ import numpy as np
 from functools import partial
 from itertools import product, starmap
 from multiprocessing import cpu_count, Pool
+import tqdm
 # from time import perf_counter
 
 from astropy.io import fits
@@ -144,7 +145,7 @@ def run_python_psf_fitting(input_images, psf_model_file=None, hmin=5, fmin=1E3,
 
             tbl['x'] += 1.
             tbl['y'] += 1.
-            make_sky_coord_cat(tbl, im, sci_ext=ext)
+            tbl = make_sky_coord_cat(tbl, im, sci_ext=ext)
             im_tbls.append(tbl)
             print('='*40)
             # break
@@ -412,7 +413,10 @@ def do_stars_mp(xs, ys, skies, mod, data, ncpu):
     xy_sky = zip(xs, ys, skies)
     # start = perf_counter()
     if ncpu == 1:
-        result = [fit_func(*xys) for xys in xy_sky]
+        result = []
+        for xys in tqdm.tqdm(xy_sky):
+            result.append(fit_func(*xys))
+        # result = [fit_func(*xys) for xys in xy_sky]
     else:
         if ncpu is None:
             p = Pool(cpu_count())
@@ -450,6 +454,22 @@ def focus_peak(xs, ys, data, max_4sums, skies, mod, ncpu):
 
     foc = _find_min_q_foc(tbls, foci)
     return foc
+
+def foc_tbls(xs, ys, data, max_4sums, skies, mod, ncpu):
+    peak_flux = max_4sums - skies * 4.
+    indices = np.argsort(peak_flux)
+    top = indices[-15:]
+    tbls = []
+    foci = np.arange(0, float(mod.nfoc)+.25-1., .25)
+    for foc in foci:
+        # print('Testing focus level {}'.format(foc))
+        mod.interp_focus(foc)
+        tbl = do_stars_mp(xs[top], ys[top], skies[top], mod, data, 1)
+        tbl.meta['phylo'] = foc
+        tbls.append(tbl)
+        # print(tbl['q'].data)
+
+    return tbls
 
 def _find_min_q_foc(tbls, foci):
     all_qs = np.array([t['q'].data for t in tbls])

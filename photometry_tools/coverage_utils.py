@@ -53,7 +53,7 @@ def make_wcs_list(hdrtab):
         created drizzled image.
     """
     wcs_list = []
-    for row in hdrtab:
+    for row in hdrtab.filled(np.nan):
         wcs_list.append(make_wcs(row))
     return wcs_list
 
@@ -108,7 +108,10 @@ def compute_coverage(drz, cat):
     for i, wcs in enumerate(wcs_list):
         arr[i] = _transform_points(rds, wcs)
     n_exp = np.sum(arr, axis=0)
-    etime = np.sum(arr*np.array(hdrtab['EXPTIME'])[:,None], axis=0)
+    if 'EXPTIME' in hdrtab.colnames:
+        etime = np.sum(arr*np.array(hdrtab['EXPTIME'])[:,None], axis=0)
+    else:
+        etime = np.sum(arr*np.array(hdrtab['DURATION'])[:,None], axis=0)
 
     return n_exp, etime
 

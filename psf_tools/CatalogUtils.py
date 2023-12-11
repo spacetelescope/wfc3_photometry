@@ -176,6 +176,7 @@ def make_sky_coord_cat(tbl, image_name, sci_ext, wcs_i=None):
     image_root = image_name.split('.')[0]
     pos_tbl.write(image_root + '_sci{}_xyrd.cat'.format(sci_ext),
                 format='ascii.commented_header', overwrite=True)
+    return pos_tbl
 
 def make_tweakreg_catfile(input_images, update=False):
     """

@@ -492,7 +492,7 @@ def simple_drizzle(images, coverage_map, wcs_file, filt):
                               combine_nhigh=combine_nhigh,
                               in_memory=False, final_wcs=True,
                               final_refimage=wcs_file,
-                              output=out_name)
+                              output=out_name, skymethod='match')
 
 
 def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,

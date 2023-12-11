@@ -55,7 +55,7 @@ def _transform_points(input_skycoords, flt_wcs, padding=9, input_fluxes=None):
 
 def make_model_star_image(drz, input_images=None, models_only=True,
                         input_coordinates=None, psf_file=None,
-                        override_model=None, input_fluxes=None):
+                        override_model=None, input_fluxes=None, flux_countrate=1):
     """
     Main function for making false star drz/drc
 
@@ -127,6 +127,9 @@ def make_model_star_image(drz, input_images=None, models_only=True,
     if input_coordinates is None:
         input_coordinates = _generate_input_coordinates(drz_wcs._naxis)
     input_skycoords = drz_wcs.all_pix2world(input_coordinates, 1)
+    if (input_fluxes is None) and (flux_countrate is not None):
+        input_fluxes = _generate_input_fluxes(input_skycoords.shape[0],
+                                              flux_countrate)
 
     output_files = []
     for im in input_images:
@@ -335,7 +338,7 @@ def make_models(psf_file):
                           meta={'grid_xypos':g_xypos1, 'oversampling':4})
             mod1 = SlowGriddedFocusPSFModel(ndd1)
 
-            ndd2 = NDData(data=psf_data[:,:28, :, :],
+            ndd2 = NDData(data=psf_data[:,28:, :, :],
                           meta={'grid_xypos':g_xypos2, 'oversampling':4})
             mod2 = SlowGriddedFocusPSFModel(ndd2)
 
@@ -367,7 +370,7 @@ class SlowGriddedFocusPSFModel(GriddedPSFModel):
         self.nfoc = data.data.shape[0]
         ndds = [NDData(data=data.data[i], meta=data.meta) for i in range(self.nfoc)]
         self.models = [GriddedPSFModel(ndd) for ndd in ndds]
-        super().__init__(ndds[0], flux, x_0, y_0)
+        super().__init__(ndds[0])
         self.data = data.data
         self.meta = data.meta
         self.interp_model = GriddedPSFModel(ndds[0])
@@ -375,9 +378,10 @@ class SlowGriddedFocusPSFModel(GriddedPSFModel):
 
 
     def interp_focus(self, focus):
-        if not 0 <= focus <= self.nfoc-1:
+        if not 1 <= focus <= self.nfoc:
             raise ValueError('Focus level {} not in range \
                              [0, {}]'.format(focus, self.nfoc))
+        focus = focus -1 # do this because jays start at 1
         if focus != int(focus):
             left = np.floor(focus)
             right = np.ceil(focus)
@@ -396,7 +400,7 @@ class SlowGriddedFocusPSFModel(GriddedPSFModel):
 
 
         self.interp_model = foc_model
-        self._focus_level = focus
+        self._focus_level = focus + 1
         return self.interp_model
 
     def evaluate(self, x, y, flux, x_0, y_0, focus=None):
