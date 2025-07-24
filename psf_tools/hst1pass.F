@@ -1,6 +1,6 @@
 
 c
-c make sure it runs without GDC if it isn't needed... 
+c make sure it runs without GDC if it isn't needed...
 c
 
 #define _PI_    3.141592653589793238462643d0
@@ -16,13 +16,13 @@ c
 
 c
 c the filename for PSFPERT doesn't actually get used; it's always
-c treated as 'AUTO' 
+c treated as 'AUTO'
 c
 
 c
 c somehow the filter and PID and rdate are not getting populated
-c  
-c    jbts01ycq_flc 
+c
+c    jbts01ycq_flc
 c
 c #   ARG000: ./hst2xym.2015.09.23.e
 c #   ARG001: HMIN=7
@@ -43,7 +43,7 @@ c 2015.07.24
 c * add option to do artificial stars...
 c
 c 2015.06.29
-c * get it to read in the images and provide ALL of the  needed info 
+c * get it to read in the images and provide ALL of the  needed info
 c   at the time:  transformations, boundaries, etc.
 c
 c 2015.06.12
@@ -51,7 +51,7 @@ c * get it to reead in and work on wfc3ir images
 c * I'll worry later about the geometric stuff
 c
 c 2015.05.06
-c * turn the main finding part into a subroutine, 
+c * turn the main finding part into a subroutine,
 c   so that I can put a wrapper around it... scary
 c
 c 2015.04.18
@@ -79,7 +79,7 @@ c Monday Feb 23, 2015
 c
 c NEEDED IMPROVEMENTS
 c 01) FLEXIBLE OUTPUT FILE uvMrdxyXYspqcnt
-c 02) add imin/imax and jmin/jmax (make sure it works for satd, too!)  
+c 02) add imin/imax and jmin/jmax (make sure it works for satd, too!)
 c 03) output the important aspects right at the top (include detector)
 c
 c MAJOR RESTRUCTURING
@@ -102,12 +102,12 @@ c
 #define _NSTMAX_ 999999     /* MAX NUMBER OF STARS IN AN IMAGE         */
 #define _ARTMAX_ 999999     /* MAX NUMBER OF STARS IN AN IMAGE         */
 #define _SKIPPX_ .false.
- 
+
       program hst2xym
       implicit none
 
       integer TESTING123
- 
+
       character*080 PROGNAME
 
       character*080 PSFFILE_000
@@ -142,7 +142,7 @@ c
 
       integer  i,  j
       integer iu
- 
+
       integer HMIN
       real    PMAX
       real    FMIN
@@ -152,24 +152,24 @@ c
 
       integer      ISIMG_NARG(999)
       character*80 STRNG_NARG(999)
- 
+
       logical DOAPPHOT
       real    RAP
       integer SKI,SKO
 
-      logical DOSATD 
+      logical DOSATD
       logical DOHSORT
       logical DOMSORT
       logical DOSTARDB
- 
+
       integer HIFLAG
       common / HIFLAG_ / HIFLAG
       data HIFLAG / 70000 /
- 
+
       integer LOFLAG
       common / LOFLAG_ / LOFLAG
       data LOFLAG / -0250 /
- 
+
 c----------------------------------
 c
 c here are the 9x9 fiducial PSFs
@@ -178,12 +178,12 @@ c
       real    QMAX
       real    CMIN, CMAX
       logical QCAND
- 
+
       integer KSEL
- 
+
       integer      NPERTs
       real         FOCUS_LEVELi
- 
+
       real pertimg(501,1501)  ! can do up to 150 images...
 
       integer H, HHo, HHs
@@ -202,7 +202,7 @@ c
 
 c
 c----------------------------------------------------------------
-c   
+c
       integer        N, Ns
       real*8         u_n(_NSTMAX_),  v_n(_NSTMAX_), mm_n(_NSTMAX_)
       real*8         x_n(_NSTMAX_),  y_n(_NSTMAX_),  m_n(_NSTMAX_)
@@ -226,7 +226,7 @@ c
 
 c
 c----------------------------------------------------------------
-c   
+c
 
       character*080 DIRECT
       character*080 PREFIX
@@ -255,14 +255,14 @@ c
 
 c
 c----------------------------------------------------------------
-c   
+c
 
       do i = 001, 0501
       do j = 001, 1501
          pertimg(i,j) = 0.
          enddo
          enddo
- 
+
       NARGs = iargc()
 
 c
@@ -311,9 +311,9 @@ c-----------------------------------------------------------------------
       WCSMODE = 'FIND'
       CATMAT  = 'NONE'
       CATREG  = 'NONE'
-      NLISTs   = 0  
-      NREGs    = 0  
- 
+      NLISTs   = 0
+      NREGs    = 0
+
       IMIN = -999
       IMAX = 9999
       JMIN = -999
@@ -368,8 +368,8 @@ c-----------------------------------------------------------------------
          print*,'           w/ap (r<2.99) and              '
          print*,'           sky bet 6 & 9                  '
          print*,'                                          '
-         print*,'KSEL  -- use only this chip number        ' 
-         print*,'QMAX  -- this is the maximum allow QFIT   ' 
+         print*,'KSEL  -- use only this chip number        '
+         print*,'QMAX  -- this is the maximum allow QFIT   '
          print*,'CMIN  -- this is the minimum central exess'
          print*,'         relative to a point source       '
          print*,'         (use to throw out resolved obj)  '
@@ -396,7 +396,7 @@ c-----------------------------------------------------------------------
          print*,'     V   = VEGA MAG (not available yet)            '
          print*,'     x,y = raw chip-dependent x y coord            '
          print*,'     k   = chip number (neg for xy in abtd system) '
-         print*,'     X,Y = dist corr x y                           ' 
+         print*,'     X,Y = dist corr x y                           '
          print*,'     h   = isolation index (pixel based)           '
          print*,'     H   = isolation index (output-file based)     '
          print*,'     r,R = Right Ascension (R in hex)              '
@@ -417,15 +417,15 @@ c-----------------------------------------------------------------------
 
       do H = 1, 999
          write(HH(H),'(''#'',248('' ''))')
-         enddo 
- 
+         enddo
+
       call getarg(0,PROGNAME)
- 
+
       write(HH(1),'(''#'')')
       write(HH(2),'(''#--------------------------------------------'')')
       write(HH(3),'(''# ARGUMENTS '')')
       write(HH(4),'(''#--------------------------------------------'')')
-      write(HH(5),'(''#   ARG'',i4.4,'': '',a80)') 0,PROGNAME 
+      write(HH(5),'(''#   ARG'',i4.4,'': '',a80)') 0,PROGNAME
       HHo = 5
 
 c
@@ -437,7 +437,7 @@ c
       print*,' '
       print*,' '
       write(*,'(''ARG'',i4.4,2x,80a)') 0,PROGNAME
-      NIMs = 0 
+      NIMs = 0
       do NARG = 1, NARGs
          ISIMG_NARG(NARG) = 0
          call getarg(NARG,FILENAME)
@@ -533,14 +533,14 @@ c
             read(FILENAME(7:80),*) FOCUS_LEVELi
             print*,'---> FOCUS_LEVELi: ',FOCUS_LEVELi
             goto 555
-            endif 
+            endif
          if (FILENAME(1:4).eq.'PERT') then
             if (FILENAME(5:5).lt.'0'.or.FILENAME(5:5).gt.'9') then
                print*,' '
                print*,'PERTn MUST HAVE AN n VALUE BETWEEN 0 AND 9'
                print*,'ARG: ',FILENAME(1:20)
                print*,' '
-               stop 
+               stop
                endif
             read(FILENAME(5:5),*) NPERTs
             print*,'        ---> NPERTs: ',NPERTs
@@ -556,7 +556,7 @@ c
                print*,'        ---> _NPRTMX_: ',_NPRTMX_
                stop
                endif
-            PSFPERT_INP = FILENAME(7:80) 
+            PSFPERT_INP = FILENAME(7:80)
             goto 555
             endif
          if (FILENAME(1:5).eq.'KSEL=') then
@@ -579,11 +579,11 @@ c
             if (FILENAME(6:6).ne.'+'.and.
      .          FILENAME(6:6).ne.'-') then
                 print*,'QCAND flag must be + or -...'
-                stop 
+                stop
                 endif
             if (FILENAME(6:6).eq.'+') QCAND = .true.
             if (FILENAME(6:6).eq.'-') QCAND = .false.
-            print*,'---> QCAND: ',QCAND 
+            print*,'---> QCAND: ',QCAND
             goto 555
             endif
          if (FILENAME(1:5).eq.'IMIN=') then
@@ -621,13 +621,13 @@ c
             print*,'     OUTDIR = ',OUTDIR
             print*,'                   '
             goto 555
-            endif 
+            endif
          if (FILENAME(1:4).eq.'OUT=') then
             NLISTs = NLISTs + 1
             if (NLISTs.gt.9) stop 'NLISTs.gt.9'
             OUTLIST_NL(NLISTs) = FILENAME(5:80)
             NITEMSO_NL(NLISTs) = 0
-            do i = 1, 80 
+            do i = 1, 80
                if (OUTLIST_NL(NLISTs)(i:i).ne.' ') NITEMSO_NL(NLISTs)= i
                enddo
             print*,'       --->    NLISTs = ',NLISTs
@@ -635,28 +635,28 @@ c
             print*,'       --->   OUTLIST = ',
      .                        OUTLIST_NL(NLISTs)(1:NITEMSO_NL(NLISTs))
             goto 555
-            endif 
+            endif
          if (FILENAME(1:4).eq.'REG=') then
             NREGs = NREGs + 1
             if (NREGs.gt.9) stop 'NREGs.gt.9'
             OUTLIST_NR(NREGs) = FILENAME(5:80)
             NITEMSO_NR(NREGs) = 0
-            do i = 1, 80 
+            do i = 1, 80
                if (OUTLIST_NR(NREGs)(i:i).ne.' ') NITEMSO_NR(NREGs)= i
                enddo
             print*,'       --->     NREGs = ',NREGs
             print*,'       --->    NITEMs = ',NITEMSO_NR(NREGs)
             print*,'       --->   OUTLIST = ',
      .                     OUTLIST_NR(NREGs)(1:NITEMSO_NR(NREGs))
-            if (NITEMSO_NR(NREGs).ne.2) 
+            if (NITEMSO_NR(NREGs).ne.2)
      .          stop 'can only have two positions in reg file'
             if (OUTLIST_NR(NREGs)(1:2).ne.'xy'.and.
      .          OUTLIST_NR(NREGs)(1:2).ne.'XY'.and.
      .          OUTLIST_NR(NREGs)(1:2).ne.'uv'.and.
-     .          OUTLIST_NR(NREGs)(1:2).ne.'rd') 
+     .          OUTLIST_NR(NREGs)(1:2).ne.'rd')
      .              stop 'CAN ONLY MAKE REGION OF xy XY uv RD'
             goto 555
-            endif 
+            endif
          if (FILENAME(1:7).eq.'CATMAT=') then
             CATMAT = FILENAME(8:80)
             goto 555
@@ -696,7 +696,7 @@ c
                 stop 'NIMs.gt._NIMMAX_'
                 endif
             FILENAME_N(NIMs) = STRING(1:iu+4)
-            write(*,'(''        ---> NIM'',i4.4,1x,80a)') 
+            write(*,'(''        ---> NIM'',i4.4,1x,80a)')
      .                               NIMs,FILENAME_N(NIMs)
             goto 888
   889       continue
@@ -716,7 +716,7 @@ c
          NIMs = NIMs + 1
          HHo  = HHo  - 1
          if (NIMs.gt._NIMMAX_) stop 'NIMs.gt._NIMMAX_'
-         FILENAME_N(NIMs) = FILENAME(1:LNC(FILENAME,200)) 
+         FILENAME_N(NIMs) = FILENAME(1:LNC(FILENAME,200))
          write(*,'(''        ---> NIM'',i4.4,1x,80a)') NIMs,FILENAME
   555    continue
          enddo
@@ -725,8 +725,8 @@ c
 
 c----------------------------------------------------------
 c
-c everything has been read in now from the command line, 
-c check to make sure that we have enough information to do 
+c everything has been read in now from the command line,
+c check to make sure that we have enough information to do
 c what needs to be done...
 c
       if (HMIN.eq.-99) then
@@ -742,7 +742,7 @@ c
          stop
          endif
       if (NIMs.eq.0) then
-         print*,'--> COMMAND LINE MUST INCLUDE AT LEAST ONE IMAGE' 
+         print*,'--> COMMAND LINE MUST INCLUDE AT LEAST ONE IMAGE'
          stop
          endif
 
@@ -777,12 +777,12 @@ c
       write(*,'(''     CMIN: '',f6.3)') CMIN
       write(*,'(''     CMAX: '',f6.3)') CMAX
       write(*,'(''    QCAND: '',l1)')   QCAND
-      write(*,'(''           '')')  
+      write(*,'(''           '')')
       write(*,'(''     NIMs: '',i5)') NIMs
       do NIM = 1, NIMs
          print*,'NIM: ',NIM,FILENAME_N(NIM)(1:60)
          enddo
-      write(*,'(''           '')')  
+      write(*,'(''           '')')
 
       if (PSFFILE_INP(1:6).eq.'APPHOT') then
           write(*,'(''#PSFFILEI: '',80a)') PSFFILE_INP
@@ -796,7 +796,7 @@ c
       do NIM = 1, NIMs
          GDCFILE_INP = GDCFILE_000
          PSFFILE_INP = PSFFILE_000
-          
+
          call sub_hst2xym(HH,HHo,HHs,
      .                    HMIN,FMIN,PMAX,
      .                    HIFLAG,WCSMODE,DOSATD,
@@ -805,13 +805,13 @@ c
      .                    NPERTs,
      .                    KSEL,QMAX,CMIN,CMAX,QCAND,
      .                    IMIN,IMAX,JMIN,JMAX,DOMSORT,DOHSORT,
-     .                    CATMAT, CATREG, 
+     .                    CATMAT, CATREG,
      .                    FILENAME_N(NIM),NIM,NIMs,
      .                       PSFFILE_INP,
      .                       GDCFILE_INP,
      .                    Ns,  u_n,  v_n, mm_n,
      .                         x_n,  y_n,  m_n,  k_n,
-     .                        xx_n, yy_n, 
+     .                        xx_n, yy_n,
      .                        uu_n, vv_n,
      .                         h_n, hh_n,
      .                         r_n,  d_n,
@@ -830,7 +830,7 @@ c
      .                    CD2_1_USE,  CD2_2_USE,
      .                    2,                   ! VERBOSE
      .                    As,xinp_a,yinp_a,minp_a,
-     .                    1,FOCUS_LEVELi,DOSTARDB) 
+     .                    1,FOCUS_LEVELi,DOSTARDB)
 
 
          call dirstrip(FILENAME_N(NIM),DIRECT,PREFIX,SUFFIX)
@@ -839,13 +839,13 @@ c
          if (OUTDIR(1:4).eq.'NONE' ) OUTDIRu = './'
          if (OUTDIR(1:5).eq.'IMAGE') OUTDIRu = DIRECT
 
-         if (NLISTs.ne.0) 
+         if (NLISTs.ne.0)
      .   call output_lists(NLISTs,NITEMSO_NL,OUTLIST_NL,
      .                     OUTDIRu,PREFIX,
      .                     HH, HHs,
      .                     Ns,  u_n,  v_n, mm_n,
      .                          x_n,  y_n,  m_n,  k_n,
-     .                         xx_n, yy_n, 
+     .                         xx_n, yy_n,
      .                         uu_n, vv_n,
      .                          h_n, hh_n,
      .                          r_n,  d_n,
@@ -853,13 +853,13 @@ c
      .                          q_n,  c_n,  s_n)
 
 
-         if (NREGs.ne.0) 
+         if (NREGs.ne.0)
      .   call output_regs(NREGs,NITEMSO_NR,OUTLIST_NR,
      .                    OUTDIRu,PREFIX,HIFLAG,
      .                    HH, HHs,
      .                    Ns,  u_n,  v_n, mm_n,
      .                         x_n,  y_n,  m_n,  k_n,
-     .                        xx_n, yy_n, 
+     .                        xx_n, yy_n,
      .                        uu_n, vv_n,
      .                         h_n, hh_n,
      .                         r_n,  d_n,
@@ -872,12 +872,12 @@ c
 
 
       stop
-      end 
+      end
 
 
 
 
- 
+
 #include "/user/jayander/FORTRAN/ROUTINES/GEN/oiojor.f"
 #include "/user/jayander/FORTRAN/ROUTINES/IMAGE/fnd_hloc_NAXIS.f"
 #include "/user/jayander/FORTRAN/ROUTINES/IMAGE/fnd_ploc_NAXIS.f"
@@ -969,16 +969,16 @@ c
 #include "/user/jayander/FORTRAN/WCS/find_ifilt_ACSWFC.f"
 #include "/user/jayander/FORTRAN/WCS/find_ifilt_WFC3UV.f"
 
-#include "/user/jayander/FORTRAN/GC/STDGDCs/extract_stdgc.f"
-#include "/user/jayander/FORTRAN/GC/STDGDCs/xryr2mc_stdgc.f"
-#include "/user/jayander/FORTRAN/GC/STDGDCs/xryr2xcyc_stdgc.f"
-#include "/user/jayander/FORTRAN/GC/STDGDCs/xcyc2xryr_stdgc.f"
+#include "/user/jayander/FORTRAN/GDC/STDGDCs/extract_stdgc.f"
+#include "/user/jayander/FORTRAN/GDC/STDGDCs/xryr2mc_stdgc.f"
+#include "/user/jayander/FORTRAN/GDC/STDGDCs/xryr2xcyc_stdgc.f"
+#include "/user/jayander/FORTRAN/GDC/STDGDCs/xcyc2xryr_stdgc.f"
 
 #include "/user/jayander/FORTRAN/FITSIO/GEN/writfits_r4_WCSLTV.f"
 
 #include "/user/jayander/FORTRAN/HST1PASS/ROUTINES/sub_hst2xym_info.f"
 #include "/user/jayander/FORTRAN/HST1PASS/ROUTINES/fill_charout.f"
-#include "/user/jayander/FORTRAN/HST1PASS/ROUTINES/find_rdate.f"  
+#include "/user/jayander/FORTRAN/HST1PASS/ROUTINES/find_rdate.f"
 #include "/user/jayander/FORTRAN/HST1PASS/ROUTINES/lnc.f"
 #include "/user/jayander/FORTRAN/HST1PASS/ROUTINES/output_lists.f"
 #include "/user/jayander/FORTRAN/HST1PASS/ROUTINES/output_regs.f"
@@ -1004,4 +1004,3 @@ c
 
 #include "/user/jayander/FORTRAN/ROUTINES/SATN/fitsat_ccdXthenY.f"
 #include "/user/jayander/FORTRAN/ROUTINES/SATN/rbarsigw_empir.f"
-

@@ -79,7 +79,7 @@ def get_ext_wcs(image_name, sci_ext=None):
     ext_names = [ext.name for ext in hdu]
     n_sci = ext_names.count('SCI')
 
-    if n_sci == 1 and sci_ext is None:
+    if n_sci == 1:
         sci_ext = 1
         wcs_i = WCS(hdu['SCI', sci_ext].header, hdu)
     elif n_sci != 1 and sci_ext is None:
@@ -155,6 +155,13 @@ def make_sky_coord_cat(tbl, image_name, sci_ext, wcs_i=None):
 
     """
 
+    hdu = fits.open(image_name)
+    ext_names = [ext.name for ext in hdu]
+    n_sci = ext_names.count('SCI')
+
+    if n_sci == 1:
+        sci_ext = 1
+    
     if wcs_i is None:
 
         wcs_i = get_ext_wcs(image_name, sci_ext)

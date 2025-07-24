@@ -11,7 +11,7 @@ from astropy.io import fits
 from astropy.table import Table
 from photutils.aperture import CircularAnnulus, CircularAperture
 from photutils.psf import FittableImageModel
-from photutils.psf.models import GriddedPSFModel
+from photutils.psf import GriddedPSFModel
 from scipy.ndimage import convolve, maximum_filter
 from scipy.optimize import curve_fit
 from scipy.stats import sigmaclip
@@ -122,9 +122,10 @@ def run_python_psf_fitting(input_images, psf_model_file=None, hmin=5, fmin=1E3,
         all cpus.  Default None.
     """
     filt = check_images(input_images)
-    if psf_model_file is None:
-        psf_model_file = get_standard_psf('./', filt)
     det = fits.getval(input_images[0], 'DETECTOR')
+    if psf_model_file is None:
+        psf_model_file = get_standard_psf('./', filt, det)
+    
     exts = [1] if det == 'IR' else [1,2]
 
     mods = make_models(psf_model_file)

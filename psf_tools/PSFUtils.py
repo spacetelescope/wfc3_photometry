@@ -5,7 +5,7 @@ from astropy.io import fits
 from astropy.wcs import WCS
 from drizzlepac import astrodrizzle, tweakback
 from itertools import product
-from photutils.psf.models import GriddedPSFModel
+from photutils.psf import GriddedPSFModel
 
 from astropy.modeling import Fittable2DModel, Parameter
 from astropy.nddata import NDData

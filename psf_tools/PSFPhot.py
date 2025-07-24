@@ -577,7 +577,11 @@ def run_hst1pass(input_images, hmin=5, fmin=1000, pmax=99999,
         validate_file(upper_dict['GDC'])
     else:
         gdc = upper_dict['GDC']
-        shutil.copy(gdc, '.')
+        try:
+            shutil.copy(gdc, '.')
+        except shutil.SameFileError:
+            pass
+        #shutil.copy(gdc, '.')
         upper_dict['GDC'] = os.path.split(gdc)[-1]
         validate_file(upper_dict['GDC'])
 
@@ -771,7 +775,7 @@ def validate_file(input_file):
         Filename of fits file to validate
     """
     try:
-        hdu = fits.open(input_file, ignore_missing_end=True)
+        hdu = fits.open(input_file, ignore_missing_simple=True)
         hdu.close()
     except IOError:
         raise IOError('Could not read input file {}, ensure it exists \
